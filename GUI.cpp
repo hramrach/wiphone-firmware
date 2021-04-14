@@ -226,9 +226,9 @@ void GUI::frameToSerial() {
   if (page && page->isSprite()) {
     for (int y=0; y<page->height(); y++) {
       for (int x=0; x<page->width(); x++) {
-        log_d(" 0x%04x", page->readPixel(x,y));
+        Serial.printf(" 0x%04x", page->readPixel(x,y));
       }
-      log_d("\r\n");
+      Serial.printf("\r\n");
     }
   }
 }
@@ -1376,6 +1376,9 @@ void GUI::enterApp(ActionID_t app) {
   case GUI_APP_DIGITAL_RAIN:
     runningApp = new DigitalRainApp(lcd, state);
     break;
+  case GUI_APP_UART_PASS:
+    runningApp = new UartPassthroughApp(lcd, state, header, footer);
+    break;
   case GUI_APP_WIDGETS:
     runningApp = new WidgetDemoApp(lcd, state);
     break;
@@ -2005,8 +2008,198 @@ void MyApp::redrawScreen(bool redrawAll) {
   screenInited = true;
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Digital Rain app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  UART passthrough app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+UartPassthroughApp::UartPassthroughApp(LCD& lcd, ControlState& state, HeaderWidget* header, FooterWidget* footer)
+         : WindowedApp(lcd, state, header, footer), FocusableApp(2), screenInited(false), startedSerial(false), 
+         xHandle0(NULL), xHandle1(NULL)
+{
+  clearRect = new RectWidget(0, header->height(), lcd.width(), lcd.height() - header->height() - footer->height(), WP_COLOR_1);
 
+  controlState.msAppTimerEventLast = millis();
+  controlState.msAppTimerEventPeriod = 500;
+
+  // State caption in the middle
+  const uint16_t spacing = 4;
+  uint16_t yOff = header->height() + 26;
+
+  baudLabel = new LabelWidget(0, yOff, lcd.width(), 25, "Baud:", WP_ACCENT_1, WP_COLOR_1, fonts[AKROBAT_BOLD_18], LabelWidget::LEFT_TO_RIGHT, 8);
+  yOff += baudLabel->height();
+  
+  baud = new TextInputWidget(0, yOff, lcd.width(), 35, controlState, 100, fonts[AKROBAT_BOLD_20], InputType::AlphaNum, 8);
+  yOff += baud->height();
+
+  echoLabel = new LabelWidget(0, yOff, 100, 25, "Echo:", WP_ACCENT_1, WP_COLOR_1, fonts[AKROBAT_BOLD_18], LabelWidget::LEFT_TO_RIGHT, 8);
+
+  echo = new ChoiceWidget(105, yOff, lcd.width()-110, 35);
+  echo->addChoice("Yes");
+  echo->addChoice("No");
+  echo->setValue(1);
+  yOff += echo->height();
+
+  startStop = new ButtonWidget(0, yOff, "Start");
+
+  addFocusableWidget(baud);
+  addFocusableWidget(echo);
+  addFocusableWidget(startStop);
+
+  setFocus(baud);
+}
+
+UartPassthroughApp::~UartPassthroughApp() {
+  delete baudLabel;
+  delete baud;
+  delete startStop;
+  delete echo;
+  delete echoLabel;
+
+  if (xHandle0 != NULL) {
+    vTaskDelete(xHandle0);
+    xHandle0 = NULL;
+  }
+
+  if (xHandle1 != NULL) {
+    vTaskDelete(xHandle1);
+    xHandle1 = NULL;
+  }
+  
+  if (startedSerial) {
+    uart_driver_delete(UART_NUM_0);
+    uart_driver_delete(UART_NUM_1);
+
+    startedSerial = false;
+  }
+  
+  const uart_config_t uart_config = {
+    .baud_rate = SERIAL_BAUD,
+    .data_bits = UART_DATA_8_BITS,
+    .parity = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+  };
+
+  int RX_BUF_SIZE =  1024;
+      
+  uart_param_config(UART_NUM_0, &uart_config);                                                                                                                                                                      
+  uart_driver_install(UART_NUM_0, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
+}
+
+void UartPassthroughApp::thread(void *pvParam) {
+  uartThreadParams *params = (uartThreadParams*)pvParam;
+
+  uint8_t* data = (uint8_t*) malloc(1024);
+  while (1) {
+    const int rxBytes = uart_read_bytes(params->rxPort, data, 1024, 1000 / 300);
+    if (rxBytes > 0) {
+      data[rxBytes] = 0;
+      uart_write_bytes(params->txPort, (const char*)data, rxBytes);
+    }
+  }
+  free(data);
+}
+
+void UartPassthroughApp::redrawScreen(bool redrawAll) {
+  // Initialize screen
+  if (redrawAll || !screenInited) {
+    ((GUIWidget*) clearRect)->redraw(lcd);
+
+    ((GUIWidget*) baudLabel)->redraw(lcd);
+    ((GUIWidget*) baud)->redraw(lcd);
+    ((GUIWidget*) startStop)->redraw(lcd);
+    ((GUIWidget*) echo)->redraw(lcd);
+    ((GUIWidget*) echoLabel)->redraw(lcd);
+  }
+  else {
+    if (baud->isUpdated()) {
+      ((GUIWidget*) baud)->redraw(lcd);
+    }
+    if (startStop->isUpdated()) {
+      ((GUIWidget*) startStop)->redraw(lcd);
+    } 
+    if (echo->isUpdated()) {
+      ((GUIWidget*) echo)->redraw(lcd);
+    } 
+  }
+
+  screenInited = true;
+}
+
+appEventResult UartPassthroughApp::processEvent(EventType event) {
+  appEventResult res = DO_NOTHING;
+  FocusableWidget* focusedWidget = getFocused();
+  
+  if (LOGIC_BUTTON_OK(event) && focusedWidget == startStop) {
+    if (!startedSerial) {
+      startedSerial = true;
+      ((ButtonWidget*) focusedWidget)->setText("stop");
+
+      const uart_config_t uart_config = {
+        .baud_rate = atoi(baud->getText()),
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+      };
+
+      int RX_BUF_SIZE =  1024;
+      
+      uart_param_config(UART_NUM_0, &uart_config);                                                                                                                                                                      
+      uart_driver_install(UART_NUM_0, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
+
+      uart_param_config(UART_NUM_1, &uart_config);
+      uart_set_pin(UART_NUM_1, USER_SERIAL_TX, USER_SERIAL_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE); 
+      uart_driver_install(UART_NUM_1, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
+
+      switch (echo->getValue()) {
+        case 1: // no
+          uart0Thread.rxPort = UART_NUM_0;
+          uart0Thread.txPort = UART_NUM_1;
+          uart1Thread.rxPort = UART_NUM_1;
+          uart1Thread.txPort = UART_NUM_0;
+          xTaskCreate(&UartPassthroughApp::thread, "uart0", 1024, &uart0Thread, tskIDLE_PRIORITY + 1, &xHandle0);
+          xTaskCreate(&UartPassthroughApp::thread, "uart1", 1024, &uart1Thread, tskIDLE_PRIORITY + 1, &xHandle1);
+          break;
+        case 0: // yes
+          uart0Thread.rxPort = UART_NUM_0;
+          uart0Thread.txPort = UART_NUM_0;
+          xTaskCreate(&UartPassthroughApp::thread, "uart0", 1024, &uart0Thread, tskIDLE_PRIORITY + 1, &xHandle0);
+          break;
+      }
+    }
+    else {
+      startedSerial = false;
+      ((ButtonWidget*) focusedWidget)->setText("start");
+
+      if (xHandle0 != NULL) {
+        vTaskDelete(xHandle0);
+        xHandle0 = NULL;
+      }
+
+      if (xHandle1 != NULL) {
+        vTaskDelete(xHandle1);
+        xHandle1 = NULL;
+      }
+    }
+
+    res |= REDRAW_SCREEN; 
+  }
+  else if (event == WIPHONE_KEY_END) { 
+    return EXIT_APP;   
+  }
+  else if (event == WIPHONE_KEY_UP || event == WIPHONE_KEY_DOWN) {
+      nextFocus(event == WIPHONE_KEY_DOWN);
+      res |= REDRAW_SCREEN;
+  }
+  else {
+    if (focusedWidget != NULL) {
+      ((GUIWidget*) focusedWidget)->processEvent(event);
+      res |= REDRAW_SCREEN; 
+    }
+  }
+
+  return res;
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Digital Rain app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DigitalRainApp::DigitalRainApp(LCD& lcd, ControlState& state)
   : ThreadedApp(lcd, state), sprite(&lcd) {
   log_d("DigitalRainApp::DigitalRainApp");
@@ -6163,8 +6356,25 @@ void CreateMessageApp::setHeaderFooter() {
 }
 
 bool CreateMessageApp::isSipAddress(const char* address) {
+  log_d("#### checking address type: %s", address);
   if (strncmp(address, "LORA:", 5) == 0) {
     return false;
+  }
+  
+  if (strlen(address) == 6) {
+    bool valid = true;
+    for (int i = 0; i < strlen(address); ++i) {
+      char c = address[i];
+
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+        valid = false;
+        break;
+      }
+    }
+
+    if (valid) {
+      return false;
+    }
   }
 
   return true;
@@ -6316,6 +6526,10 @@ appEventResult CreateMessageApp::processEvent(EventType event) {
         // LoRa message
         snprintf(loraAddress, sizeof(loraAddress), "%X", chipId);
         fromUri = loraAddress;
+
+        if (strncmp(toUri, "LORA:", 5) == 0) {
+          toUri = extractAddress(toUri, MessageType_t::LORA); 
+        }
       }
 
       log_d("To address: %s", toUri);

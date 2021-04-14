@@ -1,3 +1,14 @@
+0.8.27:
+    Minor:
+    - 0.8.26 was released onto production by accident so changing to 0.8.27
+
+0.8.26rc2:
+    Minor:
+     - Support for rc in version string
+     - Fix error in RTP packet header
+     - Add support for broadcast LoRa messages
+     - uart passthrough app
+     - Detect 6 digit hex number as LoRa address
 0.8.26:
      Minor:
      - add config file for code auto-formatter

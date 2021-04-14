@@ -30,6 +30,8 @@ governing permissions and limitations under the License.
 #include "Audio.h"
 #include "FairyMax.h"
 #include "ota.h"
+#include "driver/uart.h"
+#include "soc/uart_struct.h"
 
 using namespace std;
 
@@ -381,6 +383,7 @@ typedef enum ActionID : uint16_t {
   GUI_APP_DESIGN_DEMO,
   GUI_APP_MIC_TEST,
   GUI_APP_DIGITAL_RAIN,
+  GUI_APP_UART_PASS,
 
   // Games
   GUI_APP_FIDE_CHESS,
@@ -1190,8 +1193,6 @@ public:
   appEventResult processEvent(EventType event);
   void redrawScreen(bool redrawAll=false);
 
-  static void thread(void *pvParam);
-
 protected:
 
   void setDataFromOtaFile(Ota &o,bool errorAsUpdate=false);
@@ -1241,6 +1242,35 @@ protected:
 
   LabelWidget*  demoCaption;
   LabelWidget*  debugCaption;
+};
+
+class UartPassthroughApp :  public WindowedApp, FocusableApp {
+public:
+  UartPassthroughApp(LCD& disp, ControlState& state, HeaderWidget* header, FooterWidget* footer);
+  ~UartPassthroughApp();
+  ActionID_t getId() {
+    return GUI_APP_UART_PASS;
+  };
+  appEventResult processEvent(EventType event);
+  void redrawScreen(bool redrawAll=false);
+protected:
+  struct uartThreadParams {
+    uart_port_t rxPort;
+    uart_port_t txPort;
+  };
+  static void thread(void *pvParam);
+  TaskHandle_t xHandle0, xHandle1;
+  bool screenInited;
+  bool startedSerial;
+
+  uartThreadParams uart0Thread, uart1Thread;
+
+  RectWidget* clearRect;
+  LabelWidget*  baudLabel;
+  LabelWidget*  echoLabel;
+  TextInputWidget* baud;
+  ButtonWidget* startStop;
+  ChoiceWidget* echo;
 };
 
 
@@ -2383,7 +2413,7 @@ protected:
     { 26, 28, "UDP pin control", "", "", GUI_APP_PIN_CONTROL },
     { 9, 28, "Circle app", "", "", GUI_APP_CIRCLES },
     { 35, 28, "Digital Rain demo", "", "", GUI_APP_DIGITAL_RAIN },
-
+    { 38, 28, "UART Passthrough", "", "", GUI_APP_UART_PASS },
     // Games (4)
 #ifdef BUILD_GAMES
     { 34, 4, "Ackman", "", "", GUI_APP_ACKMAN },

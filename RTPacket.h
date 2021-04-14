@@ -16,6 +16,7 @@ governing permissions and limitations under the License.
 #define RTPACKET_H
 
 #include <byteswap.h>
+#include "config.h"
 
 // Taken from https://en.wikipedia.org/wiki/Real-time_Transport_Protocol
 typedef struct __attribute__((packed)) {
@@ -29,25 +30,37 @@ RTPacketHeader;
 
 class RTPacket {
 public:
-  RTPacket() : version_(2), marker_(false), payload_type_(9), sequence_(0), timestamp_(0), ssrc_(0), csrc_(0) {};
+  RTPacket() : version_(2), marker_(false), payload_type_(0), sequence_(0), timestamp_(0), ssrc_(0), csrc_(0) {};
 
   RTPacketHeader *generateHeader(uint32_t payloadLen) {
-    ++sequence_;
-    timestamp_ += payloadLen;
+    
 
-    header_.vpxcc = (sequence_ << 6);
-    header_.ptm = payload_type_;
+    header_.vpxcc =  (2 << 6) | (0 << 5) | (0 << 4) | 0;
+    header_.ptm = this->payload_type_;
     header_.timestamp = __bswap_32(timestamp_);
     header_.sequence = __bswap_16(sequence_);
     header_.SSRC = __bswap_32(ssrc_);
 
+    this->sequence_ = this->sequence_ + 1;
+    this->timestamp_ += payloadLen;
+
     return &header_;
   };
 
-  void newSession() {
-    ++ssrc_;
-    sequence_ = Random.random();
-    timestamp_ = Random.random();
+  void setPayloadType(int payloadType) {
+    this->payload_type_ = payloadType;
+  }
+
+  void newSession(bool randomSSRC=false) {
+    if (randomSSRC) {
+      this->ssrc_ = Random.random();
+    } else {
+      ++this->ssrc_;
+    }
+    
+    this->sequence_ = Random.random();//4649;
+    this->timestamp_ = Random.random();//*/2495961303;
+    //this->ssrc_ = 1267049011;
   };
 
   void setHeader(uint8_t *buff) {

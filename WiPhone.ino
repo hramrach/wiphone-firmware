@@ -503,7 +503,19 @@ bool gpioExtenderServiceInterrupt() {
 
 void setup() {
   // Initialize serial
-  Serial.begin(SERIAL_BAUD);
+  const uart_config_t uart_config = {
+    .baud_rate = SERIAL_BAUD,
+    .data_bits = UART_DATA_8_BITS,
+    .parity = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+  };
+
+  int RX_BUF_SIZE =  1024;
+      
+  uart_param_config(UART_NUM_0, &uart_config);                                                                                                                                                                      
+  uart_driver_install(UART_NUM_0, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
+  
   for(int i=0; i<17; i=i+8) {
     chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
   }

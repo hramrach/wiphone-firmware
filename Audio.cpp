@@ -87,8 +87,7 @@ Audio::Audio(bool stereoOut, int BCLK, int LRC, int DOUT, int DIN) : playbackFS(
   log_d("Audio::Audio: codec %d", ESP.getFreeHeap());
 
   // Populate sequence ID, SSRC and timestamp
-  //rtpRecvrtpSend.init(Audio::G722_RTP_PAYLOAD, Random.random(), Random.random(), Random.random());
-  rtpSend.newSession();
+  rtpSend.newSession(true);
 
   log_d("Audio::Audio: rtp %d", ESP.getFreeHeap());
 
@@ -603,15 +602,14 @@ void Audio::loop() {
 
           if (bytes > 0) {
             // Create RTP packet
-            //rtpSend.next(this->micEnc, bytes);
-            //uint8_t rtpHeader[12];
-            //int headerSize = rtpSend.serializeHeader(rtpHeader);
-            RTPacketHeader *rtpHeader = rtpSend.generateHeader(bytes);
 
+            RTPacketHeader *rtpHeader = rtpSend.generateHeader(bytes);
+            
             // Send RTP packet
-            rtp.beginPacket(rtpRemoteIP, rtpRemotePort);
+            rtp.beginPacket(rtpRemoteIP, rtpRemotePort);            
             rtp.write((uint8_t*)rtpHeader, sizeof(RTPacketHeader));
             rtp.write(this->micEnc, bytes);         // TODO: this unnecesarily (and rather slowly) copies the buffer
+            
             // TODO: leave 12 bytes in the head of micEnc free for the RTP header, implement and use udp.writeFast()
             if (!rtp.endPacket()) {
               this->packetsSendingFailed++;
@@ -747,19 +745,34 @@ void Audio::loop() {
         if (len > 12) {
           if (rtp.remotePort() == rtpRemotePort || !rtpRemotePort) {    // ensuring that the audio comes from the right port; TODO: ensure also that it comes from the right IP
             // Parse RTP packet
+            //uint8_t payloadType = rtpRecv.decodeHeader(playEnc);
+            
             rtpRecv.setHeader(playEnc);
             uint8_t payloadType = rtpRecv.getPayloadType();
+            
             if (payloadType == rtpPayloadType) {
               // Did packets arrive in correct sequence?
               bool inSeq = false;
+
+              
               uint16_t seqDiff = (rtpRecv.getSequenceNumber() >= this->lastSequenceNum) ?
                                  rtpRecv.getSequenceNumber() - this->lastSequenceNum :
                                  0xffffu - this->lastSequenceNum + rtpRecv.getSequenceNumber();
+
+                                 
+
+
+              /*
+              uint16_t seqDiff = (rtpRecv.getSequenceNum() >= this->lastSequenceNum) ?
+                                   rtpRecv.getSequenceNum() - this->lastSequenceNum :
+                                   0xffffu - this->lastSequenceNum + rtpRecv.getSequenceNum();
+                                   */
               if (this->firstPacket) {
                 inSeq = true;
                 this->firstPacket = false;
-                log_d("Sound source (SSRC): %u", rtpRecv.getSSRC());
+                log_i("Sound source (SSRC): %u", rtpRecv.getSSRC());
               }
+              
               if (seqDiff > 0 && seqDiff <= 1000) {   // not more than 20 seconds apart (20ms packet)
                 // Packet in order (maybe some packets missed)
                 inSeq = true;
@@ -811,6 +824,7 @@ void Audio::loop() {
 
                 // Remember sequence number
                 // TODO: if this sequence is incorrect, entire call audio might be discarded; add resiliency
+                //this->lastSequenceNum = rtpRecv.getSequenceNum();
                 this->lastSequenceNum = rtpRecv.getSequenceNumber();
               }
             } else {
@@ -1062,7 +1076,7 @@ bool Audio::sendRtpStreamFromMic(uint8_t payloadType, IPAddress remoteAddr, uint
   this->calcMicIntensity = false;
 
   // Prepare RTP header for sending
-  //rtpSend.init(payloadType, Random.random(), rtpSend.getSSRC() + 1, Random.random());     // random RTP sequence number and timestamp
+  rtpSend.setPayloadType(payloadType);
   rtpSend.newSession();
   // Kickstart streaming
   this->microphoneStreamOut = true;

@@ -40,15 +40,19 @@ governing permissions and limitations under the License.
 #ifdef WIPHONE_PRODUCTION
 
 #define TCP(tcp, fmt, ...)              tcp.print(fmt, ##__VA_ARGS__)
-#define TCP_PRINTF(tcp, fmt, ...)       tcp.printf(fmt, ##__VA_ARGS__)        // TODO: use it instead of series of TCP
+#define TCP_PRINTF(tcp, fmt, ...)       tcp.printf(fmt, ##__VA_ARGS__)        
 
 // why isn't this enabled (disabled) in production?
 //#define SIP_DEBUG_DELAY(n)
 #else
 
-#define TCP(tcp, fmt, ...)              do { log_d(fmt, ##__VA_ARGS__); tcp.print(fmt, ##__VA_ARGS__); } while (0)          // logs + send
-#define TCP_PRINTF(tcp, fmt, ...)       do { log_d(fmt, ##__VA_ARGS__); tcp.printf(fmt, ##__VA_ARGS__); } while (0)
+
+#include <esp32-hal-log.h>
+
+#define TCP(tcp, fmt, ...)           do{/*log_d(fmt, ##__VA_ARGS__);*/tcp.print(fmt, ##__VA_ARGS__);}while(0);
+#define TCP_PRINTF(tcp, fmt, ...)    do{log_d(fmt, ##__VA_ARGS__);tcp.printf(fmt, ##__VA_ARGS__);}while(0);
 #define SIP_DEBUG_DELAY(n)              delay(n)
+
 
 #endif // WIPHONE_PRODUCTION
 
@@ -1257,7 +1261,7 @@ int TinySIP::sendResponse(Dialog* diag, Connection& tcp, uint16_t code, const ch
 
   // First line
   TCP(tcp, "SIP/2.0 ");
-  TCP(tcp, code);
+  TCP_PRINTF(tcp, "%d", code);
   TCP(tcp, " ");
   TCP(tcp, reason);
   TCP(tcp, "\r\n");
@@ -3345,9 +3349,11 @@ char* TinySIP::parseQuotedStringValue(char** p, char sep) {
 // Header Via routine
 void TinySIP::sendHeaderVia(Connection& tcp, String& thisIp, uint16_t port, const char* branch) {
   TCP(tcp, "Via: SIP/2.0/TCP ");
-  TCP(tcp, thisIp);
+  char buffer[300] = {0};
+  thisIp.toCharArray(buffer, sizeof(buffer));
+  TCP(tcp, buffer);
   TCP(tcp, ":");
-  TCP(tcp, port);
+  TCP_PRINTF(tcp, "%d", port);
   TCP(tcp, ";rport;branch=");
   TCP(tcp, branch);
   TCP(tcp, ";alias\r\n");
@@ -3466,7 +3472,7 @@ void TinySIP::sendHeaderCallId(Connection& tcp, char* callid) {
 
 void TinySIP::sendHeaderExpires(Connection& tcp, uint32_t seconds) {
   TCP(tcp, "Expires: ");
-  TCP(tcp, seconds);
+  TCP_PRINTF(tcp, "%d", seconds);
   TCP(tcp, "\r\n");
 }
 
@@ -3476,7 +3482,7 @@ void TinySIP::sendHeaderExpires(Connection& tcp, uint32_t seconds) {
  */
 void TinySIP::sendHeaderCSeq(Connection& tcp, uint16_t seq, const char* methd) {
   TCP(tcp, "CSeq: ");
-  TCP(tcp, seq ? seq : respCSeq);
+  TCP_PRINTF(tcp, "%d", seq ? seq : respCSeq);
   TCP(tcp, " ");
   TCP(tcp, methd ? methd : respCSeqMethod);
   TCP(tcp, "\r\n");
@@ -3484,7 +3490,7 @@ void TinySIP::sendHeaderCSeq(Connection& tcp, uint16_t seq, const char* methd) {
 
 void TinySIP::sendHeaderMaxForwards(Connection& tcp, uint8_t n) {
   TCP(tcp, "Max-Forwards: ");
-  TCP(tcp, n);
+  TCP_PRINTF(tcp, "%d", n);
   TCP(tcp, "\r\n");
 }
 
@@ -3588,7 +3594,7 @@ void TinySIP::sendBodyHeaders(Connection& tcp, int len, const char* type) {
     TCP(tcp, "\r\n");
   }
   TCP(tcp, "Content-Length: ");
-  TCP(tcp, len);
+  TCP_PRINTF(tcp, "%d", len);
   TCP(tcp, "\r\n\r\n");
 }
 

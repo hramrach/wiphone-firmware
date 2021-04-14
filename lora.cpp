@@ -60,7 +60,9 @@ TextMessage* Lora::parse_message(const uint8_t *message, uint8_t len) {
 
   if (len >= LORA_MESSAGE_MIN_LEN && msg->magic == LORA_MESSAGE_MAGIC) {
     if (msg->to != chipId) {
-      return NULL; // Message not for us
+      if (msg->to > 0 ) {
+        return NULL; // Message not for us
+      }
     }
 
     char to_str[30] = {0}, from_str[30] = {0};

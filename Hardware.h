@@ -39,7 +39,7 @@ governing permissions and limitations under the License.
 #define AUDIO_CODEC         8750
 //#define MOTOR_DRIVER        8833    // 8833 - include library DRV8833.h
 #define LED_BOARD                   // initialize APA102 driver and enable "LED Board" app
-//#define USER_SERIAL                 // listen to user hardware UART? (pins 22, 32)
+#define USER_SERIAL                 // listen to user hardware UART? (pins 22, 32)
 #define USER_SERIAL_BAUD          9600
 #define USER_SERIAL_CONFIG        SERIAL_8N1
 #define USER_SERIAL_BUFFER_SIZE   2048

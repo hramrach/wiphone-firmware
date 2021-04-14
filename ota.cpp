@@ -35,12 +35,30 @@ static const char *defaultCaCert =
   "-----END CERTIFICATE-----\n";
 
 static int compVersions ( const char * version1, const char * version2 ) {
-  uint32_t major1 = 0, minor1 = 0, bugfix1 = 0;
-  uint32_t major2 = 0, minor2 = 0, bugfix2 = 0;
-  sscanf(version1, "%u.%u.%u", &major1, &minor1, &bugfix1);
-  sscanf(version2, "%u.%u.%u", &major2, &minor2, &bugfix2);
+  uint32_t major1 = 0, minor1 = 0, bugfix1 = 0, rc1 = 0;
+  uint32_t major2 = 0, minor2 = 0, bugfix2 = 0, rc2 = 0;
 
-  log_d("v: %u %u %u -> %u %u %u", major1, minor1, bugfix1, major2, minor2, bugfix2);
+  if (strstr(version1, "db") != NULL || strstr(version2, "db") != NULL) {
+    if (strcmp(version1, version2) == 0 ) {
+      return 0;
+    }
+
+    return -1;
+  }
+
+  if (strstr(version1, "rc") != NULL) {
+    sscanf(version1, "%u.%u.%urc%u", &major1, &minor1, &bugfix1, &rc1);
+  } else {
+    sscanf(version1, "%u.%u.%u", &major1, &minor1, &bugfix1);
+  }
+
+  if (strstr(version2, "rc") != NULL) {
+    sscanf(version2, "%u.%u.%urc%u", &major2, &minor2, &bugfix2, &rc2);
+  } else {
+    sscanf(version2, "%u.%u.%u", &major2, &minor2, &bugfix2);
+  }
+
+  log_d("v: %u %u %u %u -> %u %u %u %u", major1, minor1, bugfix1, rc1, major2, minor2, bugfix2, rc2);
 
   if (major1 < major2) {
     return -1;
@@ -60,6 +78,13 @@ static int compVersions ( const char * version1, const char * version2 ) {
   if (bugfix1 > bugfix2) {
     return 1;
   }
+  if (rc1 < rc2) {
+    return -1;
+  }
+  if (rc1 > rc2) {
+    return 1;
+  }
+  
   return 0;
 }
 
@@ -289,14 +314,14 @@ bool Ota::updateExists(bool loadIni) {
   CriticalFile otaIni(getOtaIniFileName());
   otaIni.load();
 
-  fwVersion_ = std::string(otaIni[0].getValueSafe("serverVersion", "0"));
+  fwVersion_ = std::string(otaIni[0].getValueSafe("latestServerVersion", "0"));
 
   if (fwVersion_ == "0") {
     log_i("#### Returning false: %s", fwVersion_.c_str());
     return false;
   }
 
-  log_d("### Ota version in ini file: [%s] [%s] [%s]", otaIni[0].getValueSafe("newVersion", "0"),
+  log_d("### Ota version in ini file: [%s] [%s] [%s]", otaIni[0].getValueSafe("latestServerVersion", "0"),
         otaIni[0].getValueSafe("oldVersion", "0"), fwVersion_.c_str());
 
   if (fwVersion_ != "" && fwVersion_ == std::string(otaIni[0].getValueSafe("newVersion", "0"))) {
@@ -309,6 +334,8 @@ bool Ota::updateExists(bool loadIni) {
 
   const char *svs = fwVersion_.c_str();
   char *lvs = FIRMWARE_VERSION;
+
+  log_i("Current version: %s server version: %s", lvs, svs);
 
   int diff = compVersions(lvs, svs);
 

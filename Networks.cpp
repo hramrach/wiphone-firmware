@@ -82,13 +82,14 @@ void connectToWiFi(const char* ssid, const char* pwd) {
   //register event handler
   WiFi.onEvent(processWiFiEvent);
 
-  // Limit transmit power to 14 dBm
-  if (esp_wifi_set_max_tx_power(56) != ESP_OK) {
-    log_e("failed to limit transmit power");
-  }
-
   //Initiate connection
   WiFi.begin(ssid, pwd);
+
+  // Limit transmit power to 14 dBm
+  int rv = 0;
+  if ((rv = esp_wifi_set_max_tx_power(56)) != ESP_OK) {
+    log_e("failed to limit transmit power: %d", rv);
+  }
 
   log_d("Waiting for connection...");
 }
