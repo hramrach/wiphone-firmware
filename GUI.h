@@ -143,7 +143,7 @@ typedef uint16_t EventType;
 #define NONKEY_EVENT_ONE_OF(e, flags)    ((e & 0x80) && ((e & 0xFF7F) & (flags)))        // only for non-keyboard events
 
 // Keypad
-#define MAX_INPUT_SEQUENCE        14          // how many characters AT MOST can one button represent
+#define MAX_INPUT_SEQUENCE        18          // how many characters AT MOST can one button represent
 
 // Process event results
 typedef uint8_t appEventResult;
@@ -222,13 +222,14 @@ public:
   char* fromNameDyn;                // display name
   char* fromUriDyn;                 // SIP URI
   char* proxyPassDyn;               // proxy password
+  char* global_UDP_TCP_SIP;         //UDP-SIP or TCP-SIP selected
 
   bool sipAccountChanged = false;   // does the SIP proxy requires (re)connecting? (this is set to true whenever user changes preferred account)
   bool sipEnabled = false;          // is the phone set to connect to the SIP proxy? (used for the SIP icon)
   bool sipRegistered = false;       // is the phone registered at the SIP proxy? (used for the SIP icon)
 
   bool loadSipAccount();            // load primary (preferred / default) SIP account from flash to RAM
-  void setSipAccount(const char* dispName, const char* uri, const char* passwd);            // use the supplied SIP account (store it in RAM)
+  void setSipAccount(const char* dispName, const char* uri, const char* passwd, const char* UDP_TCP_SIP_Selection);            // use the supplied SIP account (store it in RAM)
   void removeSipAccount();          // remove account from RAM (and don't reconnect in future)
   bool isCallPossible() {
     return this->sipRegistered && ! this->sipAccountChanged;
@@ -2024,6 +2025,9 @@ public:
   };
   appEventResult processEvent(EventType event);
   void redrawScreen(bool redrawAll=false);
+  void setStateCaption(char* t) {
+    stateCaption->setText(t);
+  }
 
 protected:
   Audio* audio;
@@ -2193,6 +2197,7 @@ protected:
   MultilineTextWidget* contactName;
   MultilineTextWidget* addressView;
   MenuWidget* viewMenu;
+  ChoiceWidget* udpTcpSipSelection;
 
   // Adding / Editing
   RectWidget* clearRect;
@@ -2459,7 +2464,7 @@ protected:
     /* 7 */ "pqrs7",
     /* 8 */ "tuv8",
     /* 9 */ "wxyz9",
-    /* # */ ".,!?@/+-_:;'*#",   // see MAX_INPUT_SEQUENCE
+    /* # */ ".,!?@$/+-=%^ _:;'*#",   // see MAX_INPUT_SEQUENCE
   };
 
   TFT_eSPI     lcd;               // physical screen

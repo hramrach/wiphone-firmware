@@ -19,7 +19,7 @@ governing permissions and limitations under the License.
 
 
 // TODO:
-// - check WiFi before calling
+// - check WiFi before calling => checked so issue#69 is fixed
 // - check if using strncpy correctly (does not terminate with a nul)
 
 #include "esp32-hal.h"
@@ -44,7 +44,7 @@ static bool been_in_verify = false;
 #ifndef WIPHONE_PRODUCTION
 #include "Test.h"
 #endif
-
+//#define UDP_SIP   no need this here
 extern "C" bool verifyOta() {
   log_d("In verify ota");
   been_in_verify = true;
@@ -688,9 +688,9 @@ void setup() {
 
   if (SD.begin(SD_CARD_CS_PIN, SPI, SD_CARD_FREQUENCY)) {
     log_d("Card mounted");
-  } else {
+  } /*else {
     log_d("Card mount FAILED");
-  }
+  }*/
 
 
   // Initialize keypad
@@ -754,8 +754,10 @@ void setup() {
 
 
 #if defined(MOTOR_DRIVER) && MOTOR_DRIVER == 8833
-  motorDriver.attachMotorA(12, 13);
-  motorDriver.attachMotorB(27, 14);
+  motorDriver.attachMotorA(AIN1, AIN2);
+  motorDriver.attachMotorB(BIN1, BIN2);
+  pinMode(MotorEN , OUTPUT);
+  digitalWrite(MotorEN , LOW);
 #endif
 
   //esp_pm_config_esp32_t conf = { RTC_CPU_FREQ_240M, 240, RTC_CPU_FREQ_80M, 10, true };
@@ -943,9 +945,11 @@ uint32_t msLastUsbCheck = 0;
 uint32_t msLastMinute = 0;
 uint32_t msLastWifiRetry = -WIFI_RETRY_PERIOD_MS;
 uint32_t msLastWiFiRssi = -WIFI_CHECK_PERIOD_MS;
+uint8_t  rtpSilentCnt = 0x0;  // for the other praty rtp stream silent detection
 bool keypadLedsOn = false;
 bool updateMessageTimes = false;
 bool waitingForClockUpdate = true;
+uint8_t wifiTerminateSip = 0x0;
 
 int8_t restoreSpeakerVol, restoreHeadphonesVol, restoreLoudspeakerVol;
 
@@ -1033,6 +1037,13 @@ void loop() {
 
       if (keyPressed == WIPHONE_KEY_F4) {
       }
+
+      if (keyPressed == WIPHONE_KEY_END) {
+        gui.state.setSipState(CallState::HangUp);
+      }
+
+
+
 
 #else
       if (keyPressed == WIPHONE_KEY_F1) {
@@ -1363,12 +1374,73 @@ void loop() {
     }
 
     // SIP CLIENT:
+
+    //Added: check if disconnected from wif during call
+    if (gui.state.hasSipAccount() && !wifiState.isConnected()) {
+      if (sip.isBusy()) {
+        log_d("Device disconnected from WIFI");
+        log_d("Call will be terminated");
+
+        // terminate audio session
+        audio->showAudioStats();
+        audio->shutdown();
+        audio->setVolumes(restoreSpeakerVol, restoreHeadphonesVol, restoreLoudspeakerVol);
+
+        sip.wifiTerminateCall();  // wifi is disconnected but need to destroy this dialogue
+        gui.exitCall();
+
+        gui.state.setSipState(CallState::HungUp);
+        appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
+        gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
+
+        wifiTerminateSip = TERMINATE_OK;
+
+        //gui.state.sipAccountChanged = true;
+      } else {
+        /*
+         * in order to do ping and update staled state.
+        */
+        //sip.checkCall(now);
+      }
+    }
+
+    /*check if remote party is disconnected during call*/
+    if (rtpSilentPeriod == RTP_SILENT_ON) {
+
+      rtpSilentPeriod = RTP_SILENT_OFF;
+
+      if (rtpSilentCnt == 0x01) {
+        rtpSilentCnt = 0x0;
+
+        // Stop media session
+        audio->showAudioStats();
+        audio->shutdown();
+        audio->setVolumes(restoreSpeakerVol, restoreHeadphonesVol, restoreLoudspeakerVol);
+
+        if (sip.isBusy()) {
+          log_d("No RTP Packets From Remote Part");  // Send logs msgs with wifi disconnection
+
+          sip.rtpSilent();
+          gui.exitCall();
+
+          gui.state.setSipState(CallState::HungUp);
+          appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
+          gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
+
+          wifiTerminateSip = TERMINATE_OK;
+        }
+      }
+      rtpSilentCnt++;
+    }
     //    This is the "user-agent core", something that binds together SIP library, GUI, audio interfaces and message storage.
     //    It implements transitions between different call states.
     if (gui.state.hasSipAccount() && wifiState.isConnected()) {
-
+      if( wifiTerminateSip == TERMINATE_OK ) {
+        gui.state.sipState == CallState::NotInited;
+        wifiTerminateSip = 0x0;
+      }
       if (gui.state.sipState == CallState::NotInited  ||  gui.state.sipAccountChanged) {
-
+        log_d("SIP is going to init");
         // Connect to SIP proxy
         uint8_t mac[6];
         wifiState.getMac(mac);
@@ -1376,6 +1448,7 @@ void loop() {
                       gui.state.fromUriDyn,
                       gui.state.proxyPassDyn,
                       mac )) {
+          sip.triedToMakeCallCounter = 0;
           log_d("Connected to SIP");
           gui.state.setSipState(CallState::Idle);
           log_d("caller free (0) = %s", sip.isBusy() ? "NO" : "YES");
@@ -1389,7 +1462,7 @@ void loop() {
         gui.state.sipAccountChanged = false;
 
       } else if (gui.state.sipState == CallState::Idle) {
-
+        sip.triedToMakeCallCounter = 0;
         bool anySip = false;      // anything received?
         TinySIP::StateFlags_t res;
         do {
@@ -1404,6 +1477,7 @@ void loop() {
             startRingtone();
           } else if (res != TinySIP::EVENT_NONE && res != TinySIP::EVENT_RESPONSE_PARSED && res != TinySIP::EVENT_REQUEST_PARSED) {
             log_d("UNPROCESSED CALL STATE (Idle): 0x%x", res);
+            gui.state.setSipState(CallState::Idle);
           }
         } while (res & TinySIP::EVENT_MORE_BUFFER);
         bool isRegistered = sip.registrationValid(now);
@@ -1501,19 +1575,22 @@ void loop() {
           gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
         }
 
-      } else if (gui.state.sipState == CallState::InvitingCallee) {
+      } else if (gui.state.sipState == CallState::InvitingCallee and gui.state.sipRegistered) {
 
         // Initialize / start call
 
         log_d("Calling: %s", gui.state.calleeUriDyn);
-        sip.startCall(gui.state.calleeUriDyn, now);
-
-        // Proceed to next state
-        gui.state.setSipState(CallState::InvitedCallee);
-        gui.redrawScreen(true, true, true, true);         // TODO: one of two special cases of redrawAll
+        if (strchr(gui.state.calleeUriDyn, '@') != NULL and  strlen(gui.state.calleeUriDyn)>0 and gui.state.sipRegistered) {
+          sip.startCall(gui.state.calleeUriDyn, now);
+          // Proceed to next state
+          gui.state.setSipState(CallState::InvitedCallee);
+          gui.redrawScreen(true, true, true, true);         // TODO: one of two special cases of redrawAll
+        } else {
+          log_e("sip callee unavailable");
+          gui.state.setSipState(CallState::Idle);
+        }
 
       } else if (gui.state.sipState == CallState::InvitedCallee) {
-
         // Audio session configs
         IPAddress rtpRemoteIP((uint32_t) 0);
         int rtpRemotePort = 0;
@@ -1554,9 +1631,13 @@ void loop() {
             }
           } else if (res & TinySIP::EVENT_CALL_TERMINATED) {
             if (gui.state.sipState != CallState::HungUp) {
+              gui.state.setSipState(CallState::Decline);
               log_d("call terminated @ InvitedCallee = %d", now);
-              gui.state.setSipState(CallState::HungUp);
+              //gui.state.setSipState(CallState::HungUp);
               msHungUp = now;
+            } else {
+              gui.state.setSipState(CallState::Decline);
+              log_d("call @ InvitedCallee is Declined");
             }
           } else if (res != TinySIP::EVENT_NONE && res != TinySIP::EVENT_RESPONSE_PARSED && res != TinySIP::EVENT_REQUEST_PARSED) {
             log_d("UNPROCESSED CALL STATE: 0x%x", res);
@@ -1564,6 +1645,7 @@ void loop() {
         } while (res & TinySIP::EVENT_MORE_BUFFER);
 
         // Update screen to show that a call was started
+        //work by techtesh
         if (anySip) {
           log_d("setting reason @ CallState::InvitedCallee");
           gui.state.setSipReason(sip.getReason());
@@ -1610,6 +1692,9 @@ void loop() {
               audio->setVolumes(restoreSpeakerVol, restoreHeadphonesVol, restoreLoudspeakerVol);
               gui.state.setSipState(CallState::HungUp);
               msHungUp = now;
+            } else if(gui.state.sipState == CallState::HungUp) {
+              log_d("Hang up call before remote party answers it");
+              sip.declineCall();
             }
           } else if (res != TinySIP::EVENT_NONE && res != TinySIP::EVENT_RESPONSE_PARSED && res != TinySIP::EVENT_REQUEST_PARSED) {
             log_d("UNPROCESSED CALL STATE (2): 0x%x", res);
@@ -1618,30 +1703,6 @@ void loop() {
         if (anySip) {
           log_d("setting reason @ CallState::Call");
           gui.state.setSipReason(sip.getReason());
-          // Force GUI to update screen
-          appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
-          gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
-        }
-
-      } else if (gui.state.sipState == CallState::HangUp) {
-
-        // User request to hangup call -> send BYE / CANCEL request
-        log_d("Terminating call");
-
-        // Stop media session
-        audio->showAudioStats();
-        audio->shutdown();
-        audio->setVolumes(restoreSpeakerVol, restoreHeadphonesVol, restoreLoudspeakerVol);
-
-        int res = sip.terminateCall(now);
-        if (res == TINY_SIP_OK) {
-          msHangingUp = now;
-
-          // Proceed to next state
-          gui.state.setSipState(CallState::HangingUp);
-        } else {
-          log_d("terminating error = %d", res);
-          gui.state.setSipState(CallState::HungUp);
           // Force GUI to update screen
           appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
           gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
@@ -1683,6 +1744,42 @@ void loop() {
           gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
         }
 
+      } else if (gui.state.sipState == CallState::HangUp) {
+
+        // User request to hangup call -> send BYE / CANCEL request
+        log_d("Terminating call");
+        stopRingtone();
+        // Stop media session
+        audio->showAudioStats();
+        audio->shutdown();
+        audio->setVolumes(restoreSpeakerVol, restoreHeadphonesVol, restoreLoudspeakerVol);
+
+        int res = sip.terminateCall(now);
+        if (res == TINY_SIP_OK) {
+          msHangingUp = now;
+
+          // Proceed to next state
+          gui.state.setSipState(CallState::HangingUp);
+        } else {
+          log_d("terminating error = %d", res);
+          gui.state.setSipState(CallState::HungUp);
+          // Force GUI to update screen
+          appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
+          gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
+        }
+
+
+        // Go back to normal
+
+        /*if (elapsedMillis(now, msHungUp, GUI::HUNGUP_TO_NORMAL_MS)) {
+
+          log_d("hungup timeout: now = %d, msHungUp = %d", now, msHungUp);
+          gui.state.setSipState(CallState::Idle);
+          log_d("caller free (2) = %s", sip.isBusy() ? "NO" : "YES");
+          appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
+          gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN, true);       // TODO: one of two special cases of redrawAll
+        }*/
+
       } else if (gui.state.sipState == CallState::HungUp) {
 
         // Go back to normal
@@ -1709,6 +1806,8 @@ void loop() {
         appEventResult res = gui.processEvent(now, NEW_MESSAGE_EVENT);
         gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);
       }
+    } else {
+      gui.state.sipRegistered = false;
     }
 
 #ifdef LORA_MESSAGING

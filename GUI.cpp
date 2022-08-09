@@ -29,6 +29,7 @@ governing permissions and limitations under the License.
 // - migrate from C-string (strcpy, strcmp, strdup) to std::string or to String?
 
 LCD* static_lcd = NULL;
+bool UDP_SIP = false;
 
 uint16_t GUI::batteryExtraLength = 0;
 
@@ -275,12 +276,12 @@ ControlState::ControlState(void)
   // Initialize dynamic
   // SIP account
   fromNameDyn  = NULL;
-  fromUriDyn   = NULL;     // SIP URI
+  fromUriDyn   = NULL;//strdup("0@00");//NULL;     // SIP URI
   proxyPassDyn = NULL;
 
   // Callee
   calleeNameDyn = NULL;
-  calleeUriDyn  = NULL;
+  calleeUriDyn  = NULL;//strdup("1@00");//NULL;
   lastReasonDyn = NULL;
 
   // Not subscribed to "any event"
@@ -304,6 +305,7 @@ ControlState::~ControlState() {
 void ControlState::clearDynamicSip() {
   freeNull((void **) &fromNameDyn);
   freeNull((void **) &fromUriDyn);
+  fromUriDyn = NULL;//strdup("0@00");//NULL;     // SIP URI
   freeNull((void **) &proxyPassDyn);
   freeNull((void **) &lastReasonDyn);
 }
@@ -311,6 +313,7 @@ void ControlState::clearDynamicSip() {
 void ControlState::clearDynamicCallee() {
   freeNull((void **) &calleeNameDyn);
   freeNull((void **) &calleeUriDyn);
+  calleeUriDyn  = NULL;//strdup("1@00");//NULL;
 }
 
 bool ControlState::loadSipAccount() {
@@ -331,7 +334,8 @@ bool ControlState::loadSipAccount() {
           log_d("primary sip account found");
           setSipAccount(si->getValueSafe("d", ""),
                         si->getValueSafe("s", ""),
-                        si->getValueSafe("p", ""));
+                        si->getValueSafe("p", ""),
+                        si->getValueSafe("u", ""));// u stands for udp-sip tcp-sip selection
           foundAccount = true;
           break;
         }
@@ -349,7 +353,7 @@ bool ControlState::loadSipAccount() {
   }
   if (!foundAccount) {
     log_d("SIP account not found");
-    setSipAccount("", "", "");
+    setSipAccount("", "", "", "");
   }
   return foundAccount;
 }
@@ -365,22 +369,37 @@ void ControlState::setInputState(InputType newInputType) {
 /* Description:
  *    set SIP account settings from function parameters
  */
-void ControlState::setSipAccount(const char* dispName, const char* uri, const char* passwd) {
+void ControlState::setSipAccount(const char* dispName, const char* uri, const char* passwd, const char* UDP_TCP_SIP_Selection) {
   clearDynamicSip();
 
+//TODO UDP_SIP set global UDP TCP SIP value on reading ini file.
+
   // Don't do anything if new credentials (namely SIP URI and password) are the same as existing ones
-  bool sipAccountSame = (uri && fromUriDyn && !strcmp(uri, fromUriDyn)) ||
-                        (passwd && proxyPassDyn && !strcmp(passwd, proxyPassDyn));      // a strong condition
+  bool sipAccountSame = (uri && fromUriDyn && !strcmp(uri, fromUriDyn)) && //Mesut: this should be AND operand
+                        (passwd && proxyPassDyn && !strcmp(passwd, proxyPassDyn) &&
+                         (UDP_TCP_SIP_Selection && global_UDP_TCP_SIP && !strcmp(UDP_TCP_SIP_Selection, global_UDP_TCP_SIP)));      // a strong condition
   sipAccountChanged = !sipAccountSame;
 
-  if (sipAccountChanged) {
-    fromNameDyn  = (dispName!=NULL) ? strdup(dispName) : strdup("");
-    fromUriDyn   = (uri!=NULL) ? strdup(uri) : strdup("");
-    proxyPassDyn = (passwd!=NULL) ? strdup(passwd) : strdup("");
+  log_d("UDP_TCP_SIP_Selection: %s", UDP_TCP_SIP_Selection);
+  if(global_UDP_TCP_SIP) {
+    log_d("globalUDP_TCP_SIP: %s", global_UDP_TCP_SIP);
   }
 
   if (sipAccountChanged) {
-    log_d("SIP ACCOUNT CHANGED");
+    fromNameDyn  = (dispName!=NULL) ? strdup(dispName) : strdup("");
+    fromUriDyn   = (uri!=NULL) ? strdup(uri) : /*strdup("0@00")*/NULL;//to do put test value here
+    proxyPassDyn = (passwd!=NULL) ? strdup(passwd) : strdup("");
+    global_UDP_TCP_SIP = (UDP_TCP_SIP_Selection!=NULL) ? strdup(UDP_TCP_SIP_Selection) : strdup("");
+    if(!strcmp(global_UDP_TCP_SIP, "UDP-SIP")) {
+      UDP_SIP = true;
+    } else {
+      UDP_SIP = false;
+    }
+    log_d("new globalUDP_TCP_SIP: %s", global_UDP_TCP_SIP);
+  }
+
+  if (sipAccountChanged) {
+    log_d("SIP ACCOUNT CHANGED UDP-SIP:%d", UDP_SIP);
     sipRegistered = false;
   }
 }
@@ -401,13 +420,26 @@ void ControlState::setRemoteNameUri(const char* dispName, const char* uri) {
   this->clearDynamicCallee();
   this->calleeNameDyn = (dispName!=NULL) ? strdup(dispName) : strdup("");
   if (uri==NULL) {
-    this->calleeUriDyn = strdup("");
+    this->calleeUriDyn = NULL;//strdup("1@00");//to do create a default value
   } else if (strchr(uri, '@') == NULL && this->fromUriDyn != NULL && strchr(this->fromUriDyn, '@')!=NULL) {
     // A number provided -> form a SIP URI for the current server
     size_t len = strlen(uri) + strlen(this->fromUriDyn);
     char buff[len+5];
     char* currentServer = strchr(this->fromUriDyn, '@');
-    sprintf(buff, "sip:%s%s", uri, currentServer);
+
+    //check whether uri starts with "sips:" or "SIPS:" or "SIP:" which can not be called (tested)
+    if(strncmp(uri, "sips:", 5) == 0 || strncmp(uri, "SIPS:", 5) == 0 || strncmp(uri, "SIP:", 4) == 0) {
+      //TODO display error popup which says we do not support it and do nothing.
+      //now, we set the buff for sake of safety purposes
+      sprintf(buff, "%s%s", uri, currentServer);
+    } else {
+      //check whether uri starts with "sip:"
+      if(strncmp(uri, "sip:", 4) == 0) {
+        sprintf(buff, "%s%s", uri, currentServer);
+      } else {
+        sprintf(buff, "sip:%s%s", uri, currentServer);
+      }
+    }
     this->calleeUriDyn = strdup(buff);
   } else {
     this->calleeUriDyn = strdup(uri);
@@ -820,7 +852,7 @@ appEventResult GUI::processEvent(uint32_t now, EventType event) {
           break;
         }
         if (p != nullptr) {
-          log_i("%s", p);
+          //log_i("%s", p);
         } else {
           log_i("unnamed event: 0x%x", event);
         }
@@ -910,7 +942,7 @@ appEventResult GUI::processEvent(uint32_t now, EventType event) {
       }
 
       // Special cases for redrawing
-      if ((event == TIME_UPDATE_EVENT || event == WIFI_ICON_UPDATE_EVENT) && runningApp->isWindowed()) {
+      if ((event == TIME_UPDATE_EVENT || event == WIFI_ICON_UPDATE_EVENT) && runningApp && runningApp->isWindowed()) {
         res |= REDRAW_HEADER;
       } else if (event == POWER_NOT_OFF_EVENT) {
         res |= runningApp->isWindowed() ? REDRAW_ALL : REDRAW_SCREEN;
@@ -3261,14 +3293,14 @@ MotorDriverApp::MotorDriverApp(LCD& lcd, ControlState& state, HeaderWidget* head
   controlState.msAppTimerEventLast = millis();
   controlState.msAppTimerEventPeriod = 25;
 
-  //allDigitalWrite(MOTOR_ENABLE_PIN, HIGH);
+  digitalWrite(MotorEN , HIGH);
 }
 
 MotorDriverApp::~MotorDriverApp() {
   log_d("destroy MotorDriverApp");
-  //allDigitalWrite(MOTOR_ENABLE_PIN, LOW);
+  digitalWrite(MotorEN , LOW);
 
-  upd->stop();
+  udp->stop();
   delete udp;
 
   // Delete widgets
@@ -3778,6 +3810,31 @@ appEventResult PhonebookApp::processEvent(EventType event) {
 
   } else if (appState==CALLING) {
 
+    if(!wifiState.isConnected() || WiFi.status() != WL_CONNECTED) {
+      if (callApp!=NULL) {
+        callApp->setStateCaption("No WiFi Conn");
+        callApp->redrawScreen(true);
+        delay(1000);
+        delete callApp;
+        callApp = NULL;
+      }
+      log_e("WIPHONE_KEY_CALL: call not possible due to wifi lost");
+      return EXIT_APP;
+    } else if (!controlState.isCallPossible()) {
+      if (callApp!=NULL) {
+        callApp->setStateCaption("No SIP Conn");
+        callApp->redrawScreen(true);
+        delay(1000);
+        delete callApp;
+        callApp = NULL;
+      }
+      log_e("WIPHONE_KEY_CALL: call not possible due to that no SIP conn.");
+      changeState(SELECTING);     // TODO: remove CALLING state, use callApp as an indication of call; "change" to current appState
+
+      //res |= REDRAW_ALL;
+
+      return EXIT_APP;
+    }
     if (callApp!=NULL) {
       if ((res = callApp->processEvent(event)) & EXIT_APP) {
         // Idle -> Exit
@@ -3860,6 +3917,18 @@ appEventResult PhonebookApp::processEvent(EventType event) {
       }
       flash.phonebook.addSection();
       flash.phonebook[-1]["n"] = dispNameInput->getText();
+
+      //check whether uri starts with "sips:" or "SIPS:" or "SIP:" which cannot be called (tested)
+      if(strncmp(sipUriInput->getText(), "sips:", 4) == 0 || strncmp(sipUriInput->getText(), "SIPS:", 4) == 0 || strncmp(sipUriInput->getText(), "SIP:", 4) == 0) {
+        //TODO display error popup which says we do not support it.
+      } else {
+        //add "sip:" to sip-uri by default
+        if( ! (strncmp(sipUriInput->getText(), "sip:", 4) == 0)) {
+          std::string tmpStr(sipUriInput->getText());
+          tmpStr = std::string("sip:") + tmpStr;
+          sipUriInput->setText(tmpStr.c_str());
+        }
+      }
       flash.phonebook[-1]["s"] = sipUriInput->getText();
       flash.phonebook[-1]["l"] = loraInput->getText();
       flash.phonebook.reorderLast(1, &(Storage::phonebookCompare));
@@ -3912,6 +3981,23 @@ void PhonebookApp::becomeCaller() {
                                   flash.phonebook[currentKey]["s"]);
     controlState.setSipReason("");
     controlState.setSipState(CallState::InvitingCallee);
+  } else {
+    //TODO show popup
+    log_e("cannot call without sip info!");
+
+    //this callApp object is just created for only showing a popup
+    callApp = new CallApp(this->audio, this->hardDisp, this->controlState, true, this->header, this->footer);
+
+    if (callApp!=NULL) {
+      callApp->setStateCaption("No SIP URI");
+      callApp->redrawScreen(true);
+      delay(1000);
+      delete callApp;
+      callApp = NULL;
+    }
+
+
+    return;
   }
 
   // GUI
@@ -3920,6 +4006,14 @@ void PhonebookApp::becomeCaller() {
 
   // Create call app as caller
   callApp = new CallApp(this->audio, this->hardDisp, this->controlState, true, this->header, this->footer);       // true for caller
+
+  /*if(!controlState.calleeUriDyn || controlState.calleeUriDyn[0] == 0)
+  {
+    //TODO show popup
+    log_e("cannot call without sip info!");
+    return;
+  }*/
+
 
   changeState(CALLING);
 }
@@ -4010,6 +4104,7 @@ SipAccountsApp::SipAccountsApp(LCD& lcd, ControlState& state, Storage& flash, He
   : WindowedApp(lcd, state, header, footer), FocusableApp(4), ini(filename) {
   log_d("create SipAccountsApp");
 
+  udpTcpSipSelection = nullptr;
   // Load SIP accounts from flash
   if ((ini.load() || ini.restore()) && !ini.isEmpty()) {
     // Check version of the file format
@@ -4070,7 +4165,12 @@ SipAccountsApp::SipAccountsApp(LCD& lcd, ControlState& state, Storage& flash, He
   addLabelInput(yOff, inputLabels[0], inputs[0], "Name:", 100);
   addDoubleLabelInput(yOff, inputLabels[1], inputs[1], "User:", 50, inputLabels[2], inputs[2], "Server:", 50);
   addLabelInput(yOff, inputLabels[3], inputs[3], "SIP URI:", 100);
-  addLabelPassword(yOff, inputLabels[4], passwordInput, "Password:", 100);
+  addLabelPassword(yOff, inputLabels[4], passwordInput, "Password:", lcd.width()/2);
+
+  udpTcpSipSelection = new ChoiceWidget(lcd.width()/2, yOff-passwordInput->height(), lcd.width()/2, 35);
+  udpTcpSipSelection->addChoice("UDP-SIP");
+  udpTcpSipSelection->addChoice("TCP-SIP");
+  yOff += udpTcpSipSelection->height();
 
   // Populate menu
   createLoadMenu();
@@ -4080,6 +4180,7 @@ SipAccountsApp::SipAccountsApp(LCD& lcd, ControlState& state, Storage& flash, He
     addFocusableWidget(inputs[i]);
   }
   addFocusableWidget(passwordInput);
+  addFocusableWidget(udpTcpSipSelection);
 
   // Initialize state
   changeState(SELECTING);
@@ -4115,6 +4216,10 @@ SipAccountsApp::~SipAccountsApp() {
     delete inputs[i];
   }
   delete passwordInput;
+  if(udpTcpSipSelection) {
+    delete udpTcpSipSelection;
+  }
+
 }
 
 void SipAccountsApp::changeState(SipAccountsAppState_t newState) {
@@ -4161,6 +4266,22 @@ void SipAccountsApp::changeState(SipAccountsAppState_t newState) {
           // Password
           passwordInput->setText(ini[currentKey]["p"]);
         }
+        //read the UDP-SIP selection from ini (as backward-compatible)
+        bool tmpUDP_SIP = false;
+        if (ini[currentKey].hasKey("u")) {
+          if(strcmp(ini[currentKey]["u"], "UDP-SIP") == 0) {
+            tmpUDP_SIP = true;
+          } else {
+            tmpUDP_SIP = false;
+          }
+        } else {
+          tmpUDP_SIP = false;
+        }
+        if(tmpUDP_SIP) {
+          udpTcpSipSelection->setValue(0);
+        } else {
+          udpTcpSipSelection->setValue(1);
+        }
         primary = ini[currentKey].hasKey("m");
       }
 
@@ -4179,6 +4300,7 @@ void SipAccountsApp::changeState(SipAccountsAppState_t newState) {
         inputs[i]->setText("");
       }
       passwordInput->setText("");
+      udpTcpSipSelection->setValue(1); //TCP-SIP
 
     }
 
@@ -4195,6 +4317,7 @@ void SipAccountsApp::changeState(SipAccountsAppState_t newState) {
         inputs[i]->activate();
       }
       passwordInput->activate();
+      udpTcpSipSelection->activate();
 
       // Change settings
       header->setTitle(newState == EDITING ? "Edit account" : "Create account");
@@ -4210,6 +4333,7 @@ void SipAccountsApp::changeState(SipAccountsAppState_t newState) {
         inputs[i]->deactivate();
       }
       passwordInput->deactivate();
+      udpTcpSipSelection->deactivate();
 
       // Change settings
       header->setTitle("View account");
@@ -4244,7 +4368,7 @@ void SipAccountsApp::createLoadMenu() {
 }
 
 appEventResult SipAccountsApp::processEvent(EventType event) {
-  log_d("processEvent SipAccountsApp");
+  //log_d("processEvent SipAccountsApp");
 
   appEventResult res = REDRAW_SCREEN;     // TODO: return DO_NOTHING on irrelevant events
 
@@ -4320,7 +4444,8 @@ appEventResult SipAccountsApp::processEvent(EventType event) {
             // Change current SIP account in memory
             controlState.setSipAccount(ini[currentKey].getValueSafe("d", ""),
                                        ini[currentKey].getValueSafe("s", ""),
-                                       ini[currentKey].getValueSafe("p", ""));
+                                       ini[currentKey].getValueSafe("p", ""),
+                                       ini[currentKey].getValueSafe("u", ""));
             res |= REDRAW_HEADER;   // redraw SIP icon (if any)
 
             // Store changes
@@ -4357,6 +4482,22 @@ appEventResult SipAccountsApp::processEvent(EventType event) {
   } else if (appState==ADDING || appState==EDITING) {      // ADDING / EDITING
 
     if (LOGIC_BUTTON_OK(event)) {
+      //get current UDP_SIP value (UDP - TCP selection choicewidget)
+      bool tmpUDP_SIP = false;
+      if (udpTcpSipSelection != NULL) {
+        log_e("udptcpsipselection: %d", udpTcpSipSelection->getValue());
+        switch (udpTcpSipSelection->getValue()) {
+        case 0: // UDP-SIP
+          tmpUDP_SIP = true;
+          break;
+        case 1: // TCP-SIP
+          tmpUDP_SIP = false;
+          break;
+        default:
+          log_e("Unknown UDP-SIP - TCP-SIP selection: %d", udpTcpSipSelection->getValue());
+          tmpUDP_SIP = false;
+        }
+      }
 
       log_d("saving SIP accounts");
       bool saved = false;
@@ -4366,6 +4507,12 @@ appEventResult SipAccountsApp::processEvent(EventType event) {
         ini[s]["d"] = inputs[0]->getText() ? inputs[0]->getText() : "";
         ini[s]["s"] = inputs[3]->getText() ? inputs[3]->getText() : "";
         ini[s]["p"] = passwordInput->getText() ? passwordInput->getText() : "";
+        //set udp-tcp selection
+        if(tmpUDP_SIP) {
+          ini[s]["u"] = "UDP-SIP";
+        } else {
+          ini[s]["u"] = "TCP-SIP";
+        }
         saved = true;
       } else if (currentKey < ini.nSections()) {
 
@@ -4373,13 +4520,22 @@ appEventResult SipAccountsApp::processEvent(EventType event) {
         ini[currentKey]["d"] = inputs[0]->getText() ? inputs[0]->getText() : "";
         ini[currentKey]["s"] = inputs[3]->getText() ? inputs[3]->getText() : "";
         ini[currentKey]["p"] = passwordInput->getText() ? passwordInput->getText() : "";
+        //set udp-tcp selection
+        if(tmpUDP_SIP) {
+          ini[currentKey]["u"] = "UDP-SIP";
+          log_e("ini[currentKey][u] = UDP-SIP");
+        } else {
+          ini[currentKey]["u"] = "TCP-SIP";
+          log_e("ini[currentKey][u] = TCP-SIP");
+        }
 
         // Change current SIP account in memory
         if (ini[currentKey].hasKey("m")) {
           // this is a primary account -> update it in memory
           controlState.setSipAccount(ini[currentKey].getValueSafe("d", ""),
                                      ini[currentKey].getValueSafe("s", ""),
-                                     ini[currentKey].getValueSafe("p", ""));
+                                     ini[currentKey].getValueSafe("p", ""),
+                                     ini[currentKey].getValueSafe("u", ""));
           res |= REDRAW_HEADER;   // redraw SIP icon (if any)
         }
 
@@ -4402,6 +4558,7 @@ appEventResult SipAccountsApp::processEvent(EventType event) {
           inputs[i]->setText("");
         }
         passwordInput->setText("");
+        udpTcpSipSelection->setValue(0);//TCP-SIP
         createLoadMenu();
         changeState(appState==EDITING ? VIEWING : SELECTING);
         res |= REDRAW_ALL;
@@ -4448,7 +4605,7 @@ appEventResult SipAccountsApp::processEvent(EventType event) {
 }
 
 void SipAccountsApp::redrawScreen(bool redrawAll) {
-  log_d("redrawScreen SipAccountsApp");
+  //log_d("redrawScreen SipAccountsApp");
 
   if (appState==SELECTING) {
     if (!screenInited || redrawAll) {
@@ -4481,8 +4638,10 @@ void SipAccountsApp::redrawScreen(bool redrawAll) {
       ((GUIWidget*) inputs[i])->redraw(lcd);
     }
     ((GUIWidget*) passwordInput)->redraw(lcd);
+    ((GUIWidget*) udpTcpSipSelection)->redraw(lcd);
 
   }
+
 
   screenInited = true;
 }
@@ -4506,10 +4665,12 @@ CallApp::CallApp(Audio* audio, LCD& lcd, ControlState& state, bool isCaller, Hea
                                  isCaller ? "Making a call..." : "Inbound call...", isCaller ? WP_ACCENT_1 : WP_ACCENT_S, WP_COLOR_1, fonts[AKROBAT_BOLD_20], LabelWidget::CENTER);
   yOff += stateCaption->height() + (spacing*2);
 
+  log_i("CallApp LastReason icon_person_w");
   // Headpic icon
   iconRect = new RectIconWidget((lcd.width()-50)>>1, yOff, 50, 50, isCaller ? WP_ACCENT_1 : WP_ACCENT_S, icon_person_w, sizeof(icon_person_w));
   yOff += iconRect->height() + (spacing*2);
 
+  log_i("CallApp Name and URI above");
   // Name and URI above
   s = controlState.calleeNameDyn!=NULL ? (const char*) controlState.calleeNameDyn : "";
   nameCaption =  new LabelWidget(0, yOff, lcd.width(), fonts[AKROBAT_EXTRABOLD_22]->height(), s, WP_COLOR_0, WP_COLOR_1, fonts[AKROBAT_EXTRABOLD_22], LabelWidget::CENTER);
@@ -4517,12 +4678,14 @@ CallApp::CallApp(Audio* audio, LCD& lcd, ControlState& state, bool isCaller, Hea
   s = controlState.calleeUriDyn!=NULL ? (const char*) controlState.calleeUriDyn : "";
   uriCaption =  new LabelWidget(0, yOff, lcd.width(), fonts[AKROBAT_BOLD_20]->height(), s, WP_DISAB_0, WP_COLOR_1, fonts[AKROBAT_BOLD_20], LabelWidget::CENTER);
 
+  log_i("CallApp Name and uriCaption");
   // Debug string: shows SIP response messages and volume
   yOff += uriCaption->height() + 20;
   s = controlState.lastReasonDyn != NULL ? (const char*) controlState.lastReasonDyn : "";
   debugCaption = new LabelWidget(0, yOff, lcd.width(), fonts[AKROBAT_BOLD_16]->height(), s, WP_DISAB_0, WP_COLOR_1, fonts[AKROBAT_BOLD_16], LabelWidget::CENTER);
 
-  reasonHash = hash_murmur(controlState.lastReasonDyn);
+  reasonHash = hash_murmur(s);
+  log_i("hash_murmur");
   audio->chooseSpeaker(LOUDSPEAKER);
 }
 
@@ -4538,9 +4701,28 @@ CallApp::~CallApp() {
 appEventResult CallApp::processEvent(EventType event) {
   log_d("processEvent CallApp");
   appEventResult res = DO_NOTHING;
+  if (event == WIPHONE_KEY_END) {
+    if(!controlState.sipRegistered) {
+      log_i("processEvent EXIT_APP");
+      return EXIT_APP;
+    }
+
+    if (controlState.sipState == CallState::Call or controlState.sipState == CallState::InvitingCallee) {
+      log_i("processEvent1 HungUp");
+      controlState.setSipState(CallState::HungUp);
+      delay(10);
+    } else {
+      log_i("processEvent EXIT_APP");
+      return EXIT_APP;
+    }
+  }
 
   if (LOGIC_BUTTON_BACK(event)) {
-
+    log_i("LOGIC_BUTTON_BACK CallApp");
+    if(!controlState.sipRegistered) {
+      log_i("processEvent EXIT_APP");
+      return EXIT_APP;
+    }
     // Reject / Hang up
     if (controlState.sipState == CallState::BeingInvited) {
       stateCaption->setText("Declining");
@@ -4567,7 +4749,12 @@ appEventResult CallApp::processEvent(EventType event) {
 
   } else if (event == CALL_UPDATE_EVENT) {
 
-    uint32_t hash = hash_murmur(controlState.lastReasonDyn);
+    uint32_t hash;
+
+    if(controlState.lastReasonDyn != NULL) {
+      hash = hash_murmur(controlState.lastReasonDyn);
+    }
+
     if (reasonHash != hash) {
       debugCaption->setText(controlState.lastReasonDyn);
       reasonHash = hash;
@@ -4586,7 +4773,7 @@ appEventResult CallApp::processEvent(EventType event) {
       res |= REDRAW_SCREEN;
 
     } else if (controlState.sipState == CallState::HungUp) {
-
+      log_i("Hung up");
       // Notify about termination of the call
       stateCaption->setText("Hung up");
       res |= REDRAW_SCREEN;
@@ -5781,7 +5968,7 @@ ClockApp::~ClockApp() {
 
 
 appEventResult ClockApp::processEvent(EventType event) {
-  log_d("processEvent ClockApp");
+  //log_d("processEvent ClockApp");
   //LOG_MEM_STATUS;
   if (LOGIC_BUTTON_BACK(event) || LOGIC_BUTTON_OK(event) || event==WIPHONE_KEY_DOWN || event==WIPHONE_KEY_UP) {
     return EXIT_APP;
@@ -5804,7 +5991,7 @@ appEventResult ClockApp::processEvent(EventType event) {
 }
 
 void ClockApp::redrawScreen(bool redrawAll) {
-  log_i("redraw ClockApp");
+  //log_i("redraw ClockApp");
 
   // Paste background image
   if (bgImg.isCreated() && lcd.isSprite()) {
@@ -5861,7 +6048,7 @@ void ClockApp::redrawScreen(bool redrawAll) {
   }
   lcd.drawString(msg, cx, lcd.height()-7);
   lcd.setSmoothTransparency(false);
-  log_v("- done");
+  //log_v("- done");
 
 }
 
@@ -9979,7 +10166,9 @@ void ChoiceWidget::setValue(ChoiceValue val) {
 }
 
 bool ChoiceWidget::processEvent(EventType event) {
+  log_e("choicewidget pointer this: %p", this);
   if (!this->choices.size()) {
+    log_e("MESUT %d", __LINE__);
     return false;  // no choices
   }
   if (event == WIPHONE_KEY_LEFT || event == WIPHONE_KEY_RIGHT) {
@@ -9989,11 +10178,13 @@ bool ChoiceWidget::processEvent(EventType event) {
       } else {
         this->curChoice = this->choices.size()-1;
       }
+      log_e("MESUT %d choice: %d", __LINE__, this->curChoice);
     } else {
       this->curChoice++;
       if (this->curChoice >= this->choices.size()) {
         this->curChoice = 0;
       }
+      log_e("MESUT %d choice: %d", __LINE__, this->curChoice);
     }
     return (this->updated = true);
   }

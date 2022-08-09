@@ -32,6 +32,9 @@ governing permissions and limitations under the License.
 
 //#define TAG "audio" // log tags don't seem to work in Arduino
 
+uint8_t    rtpSilentPeriod = 0x0;
+uint32_t   rtpSilentScan = 0x0;
+
 AUDIO_CODEC_CLASS  codec(AUDIO_CODEC_I2C_ADDR, I2C_SDA_PIN, I2C_SCK_PIN);
 
 const uint16_t Audio::audio_sample[] = {
@@ -139,7 +142,7 @@ void Audio::report() {
 
 bool Audio::start() {
   bool succ = true;
-  
+
   // Turn on the audio codec IC
   log_v("turning ON audio codec");
   // TODO: feed result into succ
@@ -723,7 +726,20 @@ void Audio::loop() {
       };
 
       int32_t len = rtp.parsePacket();
+
+      if (len == 0) {
+        uint32_t tmpSilentAudio = millis();
+        if ((tmpSilentAudio - rtpSilentScan) > STP_SILENT_PERIOD) {
+          log_d("tmpSilentAudio is: %ld  and rtpSilentScan is: %ld", tmpSilentAudio, rtpSilentScan);
+          log_d("NO RTP PACKETS FROM REMOTE PART");
+          rtpSilentScan = tmpSilentAudio;
+          rtpSilentPeriod = RTP_SILENT_ON;
+        }
+      }
+
       if (len > 0) {
+        rtpSilentScan = millis();
+        rtpSilentPeriod = RTP_SILENT_OFF;
         //log_d("RTP packet received: %d", len);
 
         // Stats

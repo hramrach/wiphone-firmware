@@ -15,6 +15,11 @@ governing permissions and limitations under the License.
 #include "tinySIP.h"
 #include "helpers.h"
 
+extern bool UDP_SIP;
+// Handle disconnect timeout
+bool    timeout_disconnect = false;
+uint32_t timeout_disconnect_mls = 0;
+uint16_t tmpRespSeq = 0;
 /*
  * This is tiny implementation of the SIP protocol intended to be used in embedded designs.
  * The goal is to implement a minimalist SIP user agent (UA) while maintaining a compact
@@ -40,7 +45,7 @@ governing permissions and limitations under the License.
 #ifdef WIPHONE_PRODUCTION
 
 #define TCP(tcp, fmt, ...)              tcp.print(fmt, ##__VA_ARGS__)
-#define TCP_PRINTF(tcp, fmt, ...)       tcp.printf(fmt, ##__VA_ARGS__)        
+#define TCP_PRINTF(tcp, fmt, ...)       tcp.printf(fmt, ##__VA_ARGS__)
 
 // why isn't this enabled (disabled) in production?
 //#define SIP_DEBUG_DELAY(n)
@@ -436,6 +441,8 @@ TinySIP::TinySIP()
   : tcpLast(tcpProxy), respRouteSet() {
   log_i("TinySIP construct");
 
+  connectReturnedFalse = false;
+
   // Dynamic variables
   respToTagDyn = NULL;
   remoteToFromDyn = NULL;
@@ -513,7 +520,7 @@ bool TinySIP::init(const char* name, const char* fromUri, const char* proxyPass,
   // connect(): socket error on fd 57, errno: 104, "Connection reset by peer"
   // it probably means the proxy doesn't support TCP. Better to warn the user instead of failing silently.
   // Something like: IP address X.X.X.X not accepting TCP connections on port XXXX.
-  proxyIpAddr = ensureConnection(tcpProxy, fromUri);
+  proxyIpAddr = ensureConnection(tcpProxy, fromUri, false, 500);
   if (tcpProxy && tcpProxy->connected()) {
     log_i("Connected to proxy!");
     log_i("  IP: %s", proxyIpAddr.toString().c_str());
@@ -562,13 +569,28 @@ void TinySIP::randInit() {
   }
 }
 
+void TinySIP::freeNullConnectionProxyObject(bool isProxy) {
+  // Clean up connections that are identical to tcpProxy
+  if (isProxy) {
+    if (tcpRoute==tcpProxy) {
+      log_d("tcpRoute nulled");
+      tcpRoute = NULL;
+    }
+    if (tcpCallee==tcpProxy) {
+      log_d("tcpCallee nulled");
+      tcpCallee = NULL;
+    }
+    tcpProxy = NULL;
+  }
+}
+
 /*
  * Description:
  *     ensure tcp is connected to host specified by IP and port
  * Return:
  *
  */
-bool TinySIP::ensureIpConnection(Connection*& tcp, IPAddress &ipAddr, uint16_t port, bool forceRenew) {
+bool TinySIP::ensureIpConnection(Connection*& tcp, IPAddress &ipAddr, uint16_t port, bool forceRenew, int32_t timeout) {
 
   // Check if ipAddr is valid
   if ((uint32_t) ipAddr == 0) {
@@ -602,42 +624,61 @@ bool TinySIP::ensureIpConnection(Connection*& tcp, IPAddress &ipAddr, uint16_t p
       log_d("TCP connection state: %s", forceRenew ? "FORCED RENEWAL" : tcp->stale() ? "stale" : (tcp->connected() ? "new destination" : "not connected"));
       tcp->stop();
       delete tcp;
-
-      // Clean up connections that are identical to tcpProxy
-      if (isProxy) {
-        if (tcpRoute==tcpProxy) {
-          log_d("tcpRoute nulled");
-          tcpRoute = NULL;
-        }
-        if (tcpCallee==tcpProxy) {
-          log_d("tcpCallee nulled");
-          tcpCallee = NULL;
-        }
-        tcpProxy = NULL;
-      }
+      freeNullConnectionProxyObject(isProxy);//tcpProxy=null etc.
       tcp = NULL;
     }
+  }
+  uint32_t get_millis = millis();
+
+  /*try to connect to tcp again by some seconds interval.*/
+  if(timeout_disconnect && ( get_millis - timeout_disconnect_mls ) < 10000) {
+    log_i("Still in disconnect mode");
+    return good;
   }
 
   // Connect
   if (!good) {
-    log_d("%s", exist ? "Reconnecting:" : "Connecting:");
-    log_d("  IP:   %s", ipAddr.toString().c_str());
-    log_d("  Port: %d", port);
-    tcp = new Connection();
-    if (tcp->connect(ipAddr, port)) {                 // TODO: when there is no connection, this causes HANGING
+    log_e("%s", exist ? "Reconnecting:" : "Connecting:");
+    log_e("  IP:   %s", ipAddr.toString().c_str());
+    log_e("  Port: %d", port);
+    //UDP_SIP=1;
+    if(UDP_SIP) {
+      if(tcp && !tcp->isUdp() && !connectReturnedFalse || !tcp) {
+        tcp = new UDP_SIPConnection;
+      }
+    } else {
+      if(tcp && !tcp->isTcp() && !connectReturnedFalse || !tcp) {
+        tcp = new TCP_SIPConnection;
+      }
+    }
+    if (tcp->connect(ipAddr, port, timeout)) {                 // TODO: when there is no connection, this causes HANGING
       log_d("Connected!");
-      log_d("  Socket handle: %d", tcp->fd());
+      //log_d("  Socket handle: %d", tcp->fd());
       log_d("  Local port: %d", tcp->localPort());
       good = tcp->connected();
       if (!good) {
         log_d("ERROR: DISCONNECTED");
+        timeout_disconnect = true;
+        timeout_disconnect_mls = get_millis;
+        delete tcp;
+        freeNullConnectionProxyObject(isProxy);//tcpProxy=null etc.
+        tcp = NULL;
+      } else {
+        tcp->msLastConnected = msLastKnownTime;
+        timeout_disconnect = false;
       }
       tcp->msLastConnected = msLastKnownTime;
+      connectReturnedFalse = false;
     } else {
+      timeout_disconnect = true;
+      timeout_disconnect_mls = get_millis;
+      connectReturnedFalse = true;
       log_d("Error: could not connect");
-      delete tcp;
-      tcp = NULL;
+      if(tcp) {
+        delete tcp;
+        freeNullConnectionProxyObject(isProxy);//tcpProxy=null etc.
+        tcp = NULL;
+      }
     }
   } else {
     log_d("TCP connection is already good");
@@ -651,7 +692,7 @@ bool TinySIP::ensureIpConnection(Connection*& tcp, IPAddress &ipAddr, uint16_t p
  * Return:
  *     IP address which was resolved from addrSpec
  */
-IPAddress TinySIP::ensureConnection(Connection*& tcp, const char* addrSpec, bool forceRenew) {
+IPAddress TinySIP::ensureConnection(Connection*& tcp, const char* addrSpec, bool forceRenew, int32_t timeout) {
   log_d("Ensuring connection: %s", addrSpec);
   AddrSpec addrParsed(addrSpec);
   IPAddress ipAddr((uint32_t) 0);
@@ -688,7 +729,7 @@ IPAddress TinySIP::ensureConnection(Connection*& tcp, const char* addrSpec, bool
         log_d("Could not resolve: \"%s\"", addrParsed.host());
       }
     }
-    ensureIpConnection(tcp, ipAddr, port, forceRenew);
+    ensureIpConnection(tcp, ipAddr, port, forceRenew, timeout);
   } else {
     log_d("ERROR: no hostport");
   }
@@ -704,7 +745,7 @@ IPAddress TinySIP::ensureConnection(Connection*& tcp, const char* addrSpec, bool
 Connection* TinySIP::getConnection(bool isClient) {
   log_d("--- Getting connection ---");
   log_d("TinySIP::getConnection as %s", isClient ? "client" : "server");
-
+  log_d("TinySIP::getConnection respRouteSet.size() is : %d ", respRouteSet.size());
   // UAS found -> connect to UAS directly
   if (respRouteSet.size() > 0) {
 
@@ -811,6 +852,8 @@ void TinySIP::clearDynamicConnections() {
 
   if (tcpProxy!=NULL) {
     delete tcpProxy;
+    //in order not to delete the same objects twice then cause crashes, we assign null to same pointer with the tcpProxy
+    freeNullConnectionProxyObject(true);
     tcpProxy = NULL;
   }
   if (tcpRoute!=NULL) {
@@ -882,13 +925,21 @@ int TinySIP::requestInvite(uint32_t msNow, Connection& tcp, const char* toUri, c
 
   randInit();
   newBranch(branch);
+  /*if (respCode==UNAUTHORIZED_401) {
+    cseq++;
+  }
+  else {
+    cseq;
+  }*/
   cseq++;
   freeNull((void **) &respToTagDyn);
 
   // Set timer for next retransmission
   msTimerAStart = msNow;
   msTimerADuration = msTimerADuration>0 ? 2*msTimerADuration : TinySIP::T1_MS;
-
+  if(UDP_SIP) {
+    tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+  }
   // Send INVITE
   sendRequestLine(tcp, "INVITE", toUri);
 
@@ -916,7 +967,9 @@ int TinySIP::requestInvite(uint32_t msNow, Connection& tcp, const char* toUri, c
     TCP(tcp, body);
   }
   tcp.flush();
-
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
   return TINY_SIP_OK;
 }
 
@@ -948,7 +1001,7 @@ int TinySIP::sdpBody(Connection& tcp, const char* ip, bool onlyLen) {
                                 "t=0 0\r\n"
                                 "m=audio %d RTP/AVP%s\r\n"
                                 "c=IN IP4 %s\r\n"
-                                "a=rtcp:%d\r\n"
+                                "a=r%s:%d\r\n"// %s is replaced by udp or tcp
                                 "%s"
                                 "a=sendrecv\r\n";
 
@@ -986,7 +1039,7 @@ int TinySIP::sdpBody(Connection& tcp, const char* ip, bool onlyLen) {
 
   // NOTE: assumes that final SDP message will be shorter than double the size of the format string
   char buff[2*strlen(format)];
-  snprintf(buff, sizeof(buff), format, sdpSessionId, sdpSessionId, ip, localAudioPort, rtpPayloads, ip, localRtcpPort, rtpMaps);
+  snprintf(buff, sizeof(buff), format, sdpSessionId, sdpSessionId, ip, localAudioPort, rtpPayloads, ip, (UDP_SIP ? "udp" : "tcp"), localRtcpPort, rtpMaps);
   auto sdpBodyLen = strlen(buff);
   if (sdpBodyLen == sizeof(buff)-1)
     // TODO: allocate more and retry
@@ -1044,7 +1097,10 @@ int TinySIP::sendAck(Connection& tcp, const char* toUri) {
   if (!tcp.connected()) {
     return TINY_SIP_ERR;
   }
-
+  log_d("---------------Sending ACK---------------");
+  if(UDP_SIP) {
+    tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+  }
   bool ackInvite200 = respClass=='2' ? true : false;
 
   if (ackInvite200) {
@@ -1083,9 +1139,14 @@ int TinySIP::sendAck(Connection& tcp, const char* toUri) {
   sendHeaderToFromLocal(tcp, 'F');                // From:
   sendHeaderToFromRemote(tcp, 'T', true);         // To: mirror the value
   sendHeaderCallId(tcp, callIdDyn);
-  sendHeaderCSeq(tcp, cseq, "ACK");               // CSeq is equal to the requests being aknowledged, but CSeq method MUST be ACK
+//sendHeaderCSeq(tcp, cseq, "ACK");               // CSeq is equal to the requests being aknowledged, but CSeq method MUST be ACK
+  sendHeaderCSeq(tcp, respCSeq, "ACK");
   sendHeaderUserAgent(tcp);
   sendBodyHeaders(tcp);
+
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
 
   return TINY_SIP_OK;
 }
@@ -1100,7 +1161,9 @@ int TinySIP::requestBye(Connection& tcp) {
   randInit();
   newBranch(branch);
   byeCSeq = ++cseq;     // remember bye CSeq to check against response  TODO
-
+  if(UDP_SIP) {
+    tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+  }
   // Send BYE
   sendRequestLine(tcp, "BYE", respContAddrSpecDyn!=NULL ? respContAddrSpecDyn : remoteUriDyn);
 
@@ -1110,7 +1173,8 @@ int TinySIP::requestBye(Connection& tcp) {
   sendRouteSetHeaders(tcp, true);
 
   if (currentCall) {
-    sendHeadersToFrom(tcp, currentCall);
+    sendByeHeadersToFrom(tcp, currentCall);
+    //sendHeadersToFrom(tcp, currentCall);
     sendHeaderCallId(tcp, currentCall->callIdDyn);
     sendHeaderCSeq(tcp, ++currentCall->localCSeq, "BYE");
   } else {
@@ -1123,7 +1187,9 @@ int TinySIP::requestBye(Connection& tcp) {
   }
   sendHeaderUserAgent(tcp);
   sendBodyHeaders(tcp);
-
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
   return TINY_SIP_OK;
 }
 
@@ -1133,7 +1199,12 @@ int TinySIP::requestCancel(Connection& tcp) {     // TODO: cancelling outgoing c
   if (!tcp.connected()) {
     return TINY_SIP_ERR;
   }
-
+  if(!remoteUriDyn) {
+    return TINY_SIP_ERR;
+  }
+  if(UDP_SIP) {
+    tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+  }
   // Send CANCEL
   sendRequestLine(tcp, "CANCEL", remoteUriDyn);           // Request-URI must be identical to that in the INVITE request being cancelled
 
@@ -1149,7 +1220,9 @@ int TinySIP::requestCancel(Connection& tcp) {     // TODO: cancelling outgoing c
 
   sendHeaderUserAgent(tcp);
   sendBodyHeaders(tcp);
-
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
   return TINY_SIP_OK;
 }
 
@@ -1172,7 +1245,9 @@ int TinySIP::requestRegister(Connection& tcp) {
       char *scheme, *hostport, *userinfo, *uriParams, *headers;
       parseAddrSpec(p, &scheme, &hostport, &userinfo, &uriParams, &headers);
       // TODO: store scheme:hostport for future use
-
+      if(UDP_SIP) {
+        tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+      }
       if (scheme!=NULL && hostport!=NULL) {
         // special case of a Request-Line
         TCP(tcp, "REGISTER ");
@@ -1210,7 +1285,9 @@ int TinySIP::requestRegister(Connection& tcp) {
   msLastRegisterRequest = msLastKnownTime;
   this->registrationRequested = true;
   this->registered = false;
-
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
   return TINY_SIP_OK;
 }
 
@@ -1219,7 +1296,9 @@ int TinySIP::requestMessage(Connection& tcp) {
   if (!tcp.connected()) {
     return TINY_SIP_ERR;
   }
-
+  if(UDP_SIP) {
+    tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+  }
   randInit();
   newBranch(branch);
   byeCSeq = ++cseq;     // remember bye CSeq to check against response  TODO
@@ -1241,7 +1320,9 @@ int TinySIP::requestMessage(Connection& tcp) {
   // Body
   sendBodyHeaders(tcp, strlen(outgoingMsgDyn), "text/plain");
   TCP(tcp, outgoingMsgDyn);
-
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
   return TINY_SIP_OK;
 }
 
@@ -1258,7 +1339,9 @@ int TinySIP::sendResponse(Dialog* diag, Connection& tcp, uint16_t code, const ch
   if (!tcp.connected()) {
     return TINY_SIP_ERR;
   }
-
+  if(UDP_SIP) {
+    tcp.beginPacket(tcp.remoteIP(), tcp.remotePort());
+  }
   // First line
   TCP(tcp, "SIP/2.0 ");
   TCP_PRINTF(tcp, "%d", code);
@@ -1284,12 +1367,14 @@ int TinySIP::sendResponse(Dialog* diag, Connection& tcp, uint16_t code, const ch
   } else {
     sendBodyHeaders(tcp);
   }
-
+  if(UDP_SIP) {
+    tcp.endPacket();
+  }
   return TINY_SIP_OK;
 }
 
 int TinySIP::startCall(const char* toUri, uint32_t msNow) {
-  log_i("startCall");
+  log_i("startCall with %s",toUri);
 
   // Reset state before making a call
   resetBuffer();
@@ -1302,6 +1387,9 @@ int TinySIP::startCall(const char* toUri, uint32_t msNow) {
   // New callee
   freeNull((void **) &remoteUriDyn);
   remoteUriDyn = strdup(toUri);
+  if (remoteUriDyn==NULL) {
+    log_i("NULL CALLEE ERROR ");
+  }
 
   // New session ID
   randInit();
@@ -1375,8 +1463,12 @@ int TinySIP::acceptCall() {
     log_e("error: could not ensure proxy connection");
   }
   Connection* tcpReply = getConnection(false);
+  //    if(UDP_SIP) {
+// tcpProxy->beginPacket(tcpProxy->remoteIP(), tcpProxy->remotePort());
+// #endif
   log_v("--- 200 OK for INVITE ---");
   int err = sendResponse(currentCall, *tcpReply, OK_200, "OK", true);
+  //int err = sendResponse(currentCall, *tcpProxy, OK_200, "OK", true);
   if (err==TINY_SIP_OK) {
     // Change dialog state to confirmed
     currentCall->setConfirmed();
@@ -1384,6 +1476,9 @@ int TinySIP::acceptCall() {
     log_d("terminated = 1");
     currentCall->terminated = 1;
     log_e("response error: %d", err);
+    //     if(UDP_SIP) {
+    //tcpProxy->endPacket();
+    //#endif
     return err;
   }
 
@@ -1454,9 +1549,18 @@ int TinySIP::terminateCall(uint32_t now) {
   log_i("TinySIP::terminateCall");
   if (!currentCall) {
     log_e("currentCall not set");
+    if(tcpProxy) {
+      int errCancel = requestCancel(*tcpProxy);
+      if (errCancel!=TINY_SIP_OK) {
+        log_v("CANCEL error: %d", err);
+      }
+    }
     return TINY_SIP_ERR;
   }
   if (currentCall->terminated) {
+    if(tcpProxy) {
+      int errCancel = requestCancel(*tcpProxy);
+    }
     log_e("currentCall is already terminated");
     return TINY_SIP_ERR+1;
   }
@@ -1532,6 +1636,48 @@ int TinySIP::terminateCall(uint32_t now) {
   return err;
 }
 
+//ADDED: For terminating call when WiPhone is disconnected from wifi
+int TinySIP::wifiTerminateCall() {
+
+  ///////////////////////////////
+  ///This part as same as TinySip destructor
+
+  // Clean Dialog
+  for (auto it = dialogs.iterator(); it.valid(); ++it)
+    if (*it) {
+      delete *it;
+    }
+
+  dialogs.clear();
+  //freeNull((void **) &regCallIdDyn);
+  ////////////////////////////////
+
+  //TinySIP::StateFlags_t res;
+  //res &= ~TinySIP::EVENT_REGISTERED;
+  TinySIP::registered = false;
+
+  //this->registrationRequested = false;
+  currentCall->terminated = 1;
+  return TINY_SIP_OK;
+}
+
+void TinySIP::rtpSilent() {
+  // Clean Dialog
+  for (auto it = dialogs.iterator(); it.valid(); ++it)
+    if (*it) {
+      delete *it;
+    }
+
+  dialogs.clear();
+  //freeNull((void **) &regCallIdDyn);
+  ////////////////////////////////
+
+  TinySIP::registered = true;
+
+  currentCall->terminated = 1;
+
+}
+
 void TinySIP::showParsed() {
   // Show parsing results
   log_d("%s", isResponse ? "Response parsed:" : "Request parsed:");
@@ -1571,8 +1717,12 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
   // TODO: are we sure we want to create entirely new connection here?
   bool reconnected = false;
   if (tcpProxy==NULL || !tcpProxy->connected() || tcpProxy->stale()) {
-    log_d("RENEWING: %s", tcpProxy->stale() ? "proxy connection is stale" : tcpProxy==NULL ? "proxy connection doesn't exist" : "proxy disconnected" );
-    reconnected = ensureIpConnection(tcpProxy, proxyIpAddr, TINY_SIP_PORT, true);
+    if(tcpProxy) {
+      log_d("RENEWING: %s", tcpProxy->stale() ? "proxy connection is stale" : "proxy disconnected" );
+    } else {
+      log_d("RENEWING: %s", "proxy connection doesn't exist" );
+    }
+    reconnected = ensureIpConnection(tcpProxy, proxyIpAddr, TINY_SIP_PORT, true, 500);
     if (!reconnected) {
       return EVENT_CONNECTION_ERROR;
     }
@@ -1735,7 +1885,7 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
                 // RFC 3261: "transition to the "confirmed" state when a 2xx final response arrives"
                 dialog->setConfirmed();
                 currentCall = dialog;
-              } else if (respClass!='1') {
+              } else if (respClass!='2' && respClass!='1') {
                 // RFC 3261: ""For other responses (>=3xx), or if no response arrives at all on that dialog, the early dialog terminates"
                 log_d("terminated = 1");
                 dialog->terminated = 1;
@@ -1763,51 +1913,68 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
 
         // - authenticate with the proxy
         // - authenticate with the registrar
-        if ((respCode==PROXY_AUTHENTICATION_REQUIRED_407 || respCode==UNAUTHORIZED_401) &&
+        if ((respCode==PROXY_AUTHENTICATION_REQUIRED_407 || respCode==UNAUTHORIZED_401 || respCode == REQUEST_PENDING) &&
             (respType==TINY_SIP_METHOD_INVITE || respType==TINY_SIP_METHOD_REGISTER || respType==TINY_SIP_METHOD_MESSAGE)) {
           log_d("Authentication parameters");
-          char empty[] = "";
-          char* alg = (digestAlgorithm!=NULL) ? digestAlgorithm : empty;
-          char* user = (localUserDyn!=NULL) ? localUserDyn : (char*) "anonymous";
-          char* realm = (digestRealm!=NULL) ? digestRealm : empty;
-          char* pass = (proxyPasswDyn!=NULL) ? proxyPasswDyn : empty;
-          char* nonce = (digestNonce!=NULL) ? digestNonce : empty;
-          char* qop = (digestQopPref!=NULL) ? digestQopPref : empty;
-          *cnonce = '\0';
-          char nonceCountStr[9] = "";
-          // TODO: response-auth / rspauth
-          if (*qop) {
-            newCNonce((char *) cnonce);
-            sprintf(nonceCountStr, "%08x", ++nonceCount);     // TODO: we always increment this, but maybe should check for nonce value first
-          }
-          char* toUri = empty;
-          bool registerResponse = !strcasecmp(respCSeqMethod,"REGISTER");
-          if (!registerResponse && remoteUriDyn!=NULL) {
-            toUri = remoteUriDyn;
-          } else if (registerResponse && localUriDyn != NULL) {
-            toUri = localUriDyn;
-          }
-          char* meth = respCSeqMethod;
-
-          HASHHEX HA1;
-          HASHHEX HA2 = "";
-
-          log_d("Digesting");
-          DigestCalcHA1(alg, user, realm, pass,  nonce, cnonce, HA1);
-          log_d("Digest HA1 = %s", HA1);
-          DigestCalcResponse(HA1, nonce, nonceCountStr, cnonce, qop, meth, toUri, HA2, digestResponse);
-          log_d("Digest reponse = %s", digestResponse);
-
-          // Send updated request with digest response
-          if (registerResponse) {
-            requestRegister(*tcpProxy);
-          } else if (respType==TINY_SIP_METHOD_INVITE) {
-            if (!reconnected && !ensureIpConnection(tcpProxy, proxyIpAddr, TINY_SIP_PORT)) {    // <-- INVITE with authorization
-              return EVENT_CONNECTION_ERROR;
+          if (tmpRespSeq != respCSeq) {
+            char empty[] = "";
+            char* alg = (digestAlgorithm!=NULL) ? digestAlgorithm : empty;
+            char* user = (localUserDyn!=NULL) ? localUserDyn : (char*) "anonymous";
+            char* realm = (digestRealm!=NULL) ? digestRealm : empty;
+            char* pass = (proxyPasswDyn!=NULL) ? proxyPasswDyn : empty;
+            char* nonce = (digestNonce!=NULL) ? digestNonce : empty;
+            char* qop = (digestQopPref!=NULL) ? digestQopPref : empty;
+            *cnonce = '\0';
+            char nonceCountStr[9] = "";
+            // TODO: response-auth / rspauth
+            if (*qop) {
+              newCNonce((char *) cnonce);
+              sprintf(nonceCountStr, "%08x", ++nonceCount);     // TODO: we always increment this, but maybe should check for nonce value first
             }
-            requestInvite(msNow, *tcpProxy, remoteUriDyn, NULL);
-          } else {
-            requestMessage(*tcpProxy);
+            char* toUri = empty;
+            bool registerResponse = !strcasecmp(respCSeqMethod,"REGISTER");
+            if (!registerResponse && remoteUriDyn!=NULL) {
+              toUri = remoteUriDyn;
+            } else if (registerResponse && localUriDyn != NULL) {
+              toUri = localUriDyn;
+            }
+            char* meth = respCSeqMethod;
+
+            HASHHEX HA1;
+            HASHHEX HA2 = "";
+
+            log_d("Digesting");
+            DigestCalcHA1(alg, user, realm, pass,  nonce, cnonce, HA1);
+            log_d("Digest HA1 = %s", HA1);
+            DigestCalcResponse(HA1, nonce, nonceCountStr, cnonce, qop, meth, toUri, HA2, digestResponse);
+            log_d("Digest reponse = %s", digestResponse);
+
+            // Send updated request with digest response
+            if (registerResponse) {
+              requestRegister(*tcpProxy);
+            } else if (respType==TINY_SIP_METHOD_INVITE) {
+              if (!reconnected && !ensureIpConnection(tcpProxy, proxyIpAddr, TINY_SIP_PORT)) {    // <-- INVITE with authorization
+                return EVENT_CONNECTION_ERROR;
+              }
+
+              /*
+                The Arduino board may restart itself because of sending the invite and receiving 401 error message numerous times.
+                This check fixes this restart problem.
+              */
+              triedToMakeCallCounter++;
+
+              //if(triedToMakeCallCounter < 5) {
+              //cseq--;
+              requestInvite(msNow, *tcpProxy, remoteUriDyn, NULL);
+              /*} else {
+                res |= EVENT_CALL_TERMINATED;
+                //std::cout << "call terminated due to not registered callee_____________________" << endl;
+                log_d("call terminated due to not registered callee_____________________");
+              }*/
+            } else {
+              requestMessage(*tcpProxy);
+            }
+            tmpRespSeq = respCSeq;
           }
         }
 
@@ -1926,20 +2093,19 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
               textMessages.add(new TextMessage(respBody, respFromAddrSpec, respToAddrSpec, msNow));
             }
 
-        // TODO
-//        // - send 200 OK for CANCEL  (TODO: check if this is what Blink replies to CSipSimple)
-//        if (respType==TINY_SIP_METHOD_CANCEL) {
-//          if (currentCall && !currentCall->terminated) {
-//            // TODO: check validity according to the RFC
-//            Connection* tcpReply = getConnection(false);
-//            log_d("--- 200 OK ---");
-//            int sendErr = sendResponse(currentCall, *tcpReply, OK_200, "OK");
-//            if (sendErr!=TINY_SIP_OK) {
-//              log_d("response error: %d", sendErr);
-//              return sendErr;
-//            }
-//          }
-//        }
+
+        if (respType==TINY_SIP_METHOD_CANCEL) {
+          if (currentCall && !currentCall->terminated) {
+            // TODO: check validity according to the RFC
+            Connection* tcpReply = getConnection(false);
+            log_d("--- 200 OK ---");
+            int sendErr = sendResponse(currentCall, *tcpReply, OK_200, "OK");
+            if (sendErr!=TINY_SIP_OK) {
+              log_d("response error: %d", sendErr);
+              return sendErr;
+            }
+          }
+        }
 
       } else {
         log_d("parseRequest ERROR: %d", parsingErr);
@@ -2002,6 +2168,7 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
             res |= EVENT_INCOMING_CALL;
           } else if (respType==TINY_SIP_METHOD_ACK && respCSeqMethod && respMethod && !strcmp(respMethod, respCSeqMethod)) {
             res |= EVENT_CALL_CONFIRMED;
+            log_d("Received ACK for SDP request");
           } else if (respType==TINY_SIP_METHOD_MESSAGE) {
             res |= EVENT_INCOMING_MESSAGE;
           }
@@ -2726,6 +2893,13 @@ int TinySIP::parseSdp(const char* body) {
           log_d("- not audio");
         }
 
+      } else if (*s == 'a') {
+        char* ee = s + 2 + strcspn(s + 2, " \r\n");           // end of media stream type (by first space)
+        if (!strncmp(s + 2, "mid", ee - s - 2) && *ee == ' ') {
+          this->audioFormat = NULL_RTP_PAYLOAD;
+          audioMediaTypeFound = true;
+          break;
+        }
       }
     } else {
       // incorrect field -> skip
@@ -3348,10 +3522,12 @@ char* TinySIP::parseQuotedStringValue(char** p, char sep) {
 
 // Header Via routine
 void TinySIP::sendHeaderVia(Connection& tcp, String& thisIp, uint16_t port, const char* branch) {
-  TCP(tcp, "Via: SIP/2.0/TCP ");
-  char buffer[300] = {0};
-  thisIp.toCharArray(buffer, sizeof(buffer));
-  TCP(tcp, buffer);
+  if(UDP_SIP) {
+    TCP(tcp, "Via: SIP/2.0/UDP ");
+  } else {
+    TCP(tcp, "Via: SIP/2.0/TCP ");
+  }
+  TCP(tcp, thisIp.c_str());
   TCP(tcp, ":");
   TCP_PRINTF(tcp, "%d", port);
   TCP(tcp, ";rport;branch=");
@@ -3438,6 +3614,19 @@ void TinySIP::sendHeadersToFrom(Connection& tcp, const Dialog* diag) {
   }
 }
 
+void TinySIP::sendByeHeadersToFrom(Connection& tcp, const Dialog* diag) {
+
+  TCP_PRINTF(tcp, "%s: \"%s\" <%s>;tag=%s\r\n", "From",
+             diag->localNameDyn ? diag->localNameDyn : "null",
+             diag->localUriDyn ? diag->localUriDyn : "null",
+             diag->localTagDyn ? diag->localTagDyn : "null");
+  TCP_PRINTF(tcp, "%s: \"%s\" <%s>;tag=%s\r\n", "To",
+             diag->remoteNameDyn ? diag->remoteNameDyn : "null",
+             diag->remoteUriDyn ? diag->remoteUriDyn : "null",
+             diag->remoteTagDyn ? diag->remoteTagDyn : "null");
+
+}
+
 // Header Allow routine
 void TinySIP::sendHeaderAllow(Connection& tcp) {
   TCP(tcp, "Allow: INVITE, ACK, BYE, CANCEL\r\n");          // "A UA that supports INVITE MUST also support ACK, CANCEL and / BYE" (RFC 3261, p. 78)
@@ -3499,7 +3688,7 @@ void TinySIP::sendHeaderUserAgent(Connection& tcp) {
 }
 
 void TinySIP::sendHeaderAuthorization(Connection& tcp, const char* URI) {
-  if ((respCode==UNAUTHORIZED_401 || respCode==PROXY_AUTHENTICATION_REQUIRED_407) &&
+  if ((respCode==UNAUTHORIZED_401 || respCode==PROXY_AUTHENTICATION_REQUIRED_407 || respCode == REQUEST_PENDING) &&
       digestResponse!=NULL && digestResponse[0]!='\0'
      ) {
     if (respCode==UNAUTHORIZED_401) {
@@ -3583,8 +3772,8 @@ void TinySIP::sendHeaderAuthorization(Connection& tcp, const char* URI) {
 
 void TinySIP::sendHeaderContact(Connection& tcp) {
   // TODO: if our IP-address changes, need to send re-INVITE within a dialog
-  TCP_PRINTF(tcp, "Contact: <sip:%d@%s:%d;transport=tcp;ob>;+sip.instance=\"<" TINYSIP_URN_UUID_PREFIX "%s>\"\r\n",
-             phoneNumber, thisIP.c_str(), tcp.localPort(), this->macHex);
+  TCP_PRINTF(tcp, "Contact: <sip:%d@%s:%d;transport=%s;ob>;+sip.instance=\"<" TINYSIP_URN_UUID_PREFIX "%s>\"\r\n",
+             phoneNumber, thisIP.c_str(), tcp.localPort(), (UDP_SIP ? "udp" : "tcp"), this->macHex);
 }
 
 void TinySIP::sendBodyHeaders(Connection& tcp, int len, const char* type) {
@@ -4040,21 +4229,31 @@ const char* TinySIP::getRemoteUri() {
 
 void TinySIP::xxd(char* b) {
   bool ended = false;
-  char* hundred = b + 100;
-  while (!ended || b<hundred) {
+  //char* hundred = b + 100;
+  int idx = 0;
+  while (!ended /*|| b<hundred*/ && idx < 2048) {
     if (*b=='\n') {
-      log_d("\\xA");
+      //log_d("\\xA");
+      TmpStringToSIPLogs[idx++]='\n';
     } else if (*b=='\r') {
-      log_d("\\xD");
+      //log_d("\\xD");
+      TmpStringToSIPLogs[idx++]='\r';
     } else if (*b=='\0') {
       ended = true;
-      log_d("\\x0");
+      //log_d("\\x0");
     } else if (*b>=32 && *b<=254) {
-      log_d("%c", *b);
+      //log_d("%c", *b);
+      TmpStringToSIPLogs[idx++]=*b;
     } else {
-      log_d("\\0x%x", *b);
+      //log_d("\\0x%x", *b);
+      TmpStringToSIPLogs[idx++]='\\';
+      TmpStringToSIPLogs[idx++]='x';
+      TmpStringToSIPLogs[idx++]='.';//*b;
+      TmpStringToSIPLogs[idx++]='\n';
     }
     b++;
   }
+  TmpStringToSIPLogs[idx] = 0;
+  log_d("%s", TmpStringToSIPLogs);
 }
 #endif // TINY_SIP_DEBUG

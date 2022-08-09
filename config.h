@@ -26,7 +26,7 @@ governing permissions and limitations under the License.
 //#define STEAL_THE_USER_BUTTONS      // this will switch between 2 different sets of definitions for the user button functions
 #endif
 
-#define FIRMWARE_VERSION "0.8.28"
+#define FIRMWARE_VERSION "0.8.29"
 
 #define BUILD_GAMES
 
@@ -86,6 +86,6 @@ governing permissions and limitations under the License.
 #define ONE_HOUR_IN_SECONDS         3600
 #define DEFAULT_TIME_OFFSET         (0 * ONE_HOUR_IN_SECONDS)    // UTC+0
 
-#define LORA_MESSAGING
+//#define UDP_SIP
 
 #endif // __CONFIG_H

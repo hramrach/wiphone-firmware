@@ -82,6 +82,7 @@ governing permissions and limitations under the License.
 #include "config.h"
 #include "Networks.h"
 #include "LinearArray.h"
+#include <WiFiUdp.h>
 
 #define TINY_SIP_DEBUG      // allow debugging (calling unitTest)
 
@@ -91,6 +92,8 @@ governing permissions and limitations under the License.
 #define TINY_SIP_NONE   0
 #define TINY_SIP_OK     1
 #define TINY_SIP_ERR    2
+
+#define TERMINATE_OK    0x02
 
 #define IMPOSSIBLY_HIGH         0x3ff00000                // sometimes tcp->available() returns more than 1 billion - ignore those cases
 
@@ -139,6 +142,8 @@ governing permissions and limitations under the License.
 #define NOT_ACCEPTABLE_HERE_488             488
 #define SERVER_INTERNAL_ERROR_500           500
 #define DECLINE_603                         603
+#define REQUEST_PENDING                     491
+
 
 /* Description:
  *      helper class for parsing SIP addresses (or, to be more precise, addr-spec) according to RFC 3261
@@ -206,15 +211,67 @@ public:
 protected:
 };
 
-/* Description:
- *     Helper class that stores information regardig viability of the TCP connection (WiFiClient).
- *     Particularly, it helps to decide if a connection is alive or got stale and needs reconnecting.
- */
-class Connection : public WiFiClient {
+class Connection {
 public:
+  Connection() {
+    msLastPing=0;
+  }
+  virtual ~Connection() {}
+  virtual bool isUdp()=0;
+  virtual bool isTcp()=0;
+  virtual uint8_t connected()=0;
+  virtual IPAddress remoteIP()=0;
+  virtual uint16_t remotePort()=0;
+  virtual uint16_t localPort()=0;
+  virtual void stop()=0;
+  virtual int available()=0;
+  virtual int32_t read(uint8_t *buffer, uint32_t length)=0;
+  virtual void write(uint8_t *buffer, uint32_t length)=0;
+  virtual int connect(IPAddress &ip, uint16_t port, int32_t timeout)=0;
+  virtual int beginPacket(IPAddress ip, uint16_t port)=0;
+  virtual int endPacket()=0;
+  virtual void flush()=0;
   bool stale();
 
+  /*virtual int print(const char *format, ...)=0;
+  virtual int print(uint8_t a, ...)=0;
+  virtual int printf(const char *format, ...)=0;*/
+
+
+  int print(const char *format, ...) {
+    va_list aptr;
+    char buffer[500] = {0};
+    int ret;
+
+    va_start(aptr, format);
+    ret = vsprintf(buffer, format, aptr);
+    va_end(aptr);
+    write((uint8_t *)buffer, strlen(buffer));
+
+    return(ret);
+  }
+
+  int print(uint8_t a, ...) {
+    return print("%d", a);
+  }
+
+  int printf(const char *format, ...) {
+    va_list aptr;
+    char buffer[500] = {0};
+    int ret;
+
+    va_start(aptr, format);
+    ret = vsprintf(buffer, format, aptr);
+    va_end(aptr);
+    write((uint8_t *)buffer, strlen(buffer));
+
+    return(ret);
+  }
+
+
 protected:
+  uint8_t _connected;
+  //int _fd;
   uint32_t msLastConnected = 0;
   uint32_t msLastReceived = 0xffffffff - 3600000;
 
@@ -231,6 +288,215 @@ protected:
 
   friend class TinySIP;
 };
+
+/* Description:
+ *     Helper class that stores information regardig viability of the TCP connection (WiFiClient).
+ *     Particularly, it helps to decide if a connection is alive or got stale and needs reconnecting.
+ */
+class UDP_SIPConnection : public WiFiUDP, public Connection {
+public:
+
+  //WiFiUDP udpSocket;
+
+  UDP_SIPConnection() : Connection() {
+    //_fd = -1;
+    mRemotePort = 5060;
+    _connected = false;
+    lastUdpWriteTime = 0;
+    endSent = false;
+  }
+  ~UDP_SIPConnection() {
+    log_e("~UDP_SIPConnection called");
+  }
+
+  bool isUdp() {
+    return true;
+  }
+  bool isTcp() {
+    return false;
+  }
+
+  uint8_t connected() {
+    //return true;
+    //log_d("connected...");
+    return _connected;
+  }
+
+  /*bool endUdpSending() {
+    //long long int msNow = millis();
+    uint32_t msNow = millis();
+    if(elapsedMillis(msNow, lastUdpWriteTime, 50) && lastUdpWriteTime != 0 && !endSent) {
+      endSent = true;
+      log_d("udp write timeout\n");
+      if (!WiFiUDP::endPacket()) {
+        // TODO set an error
+        // failed to send
+        log_d("Connection(UDP)::write failed\n");
+      }
+    }
+
+    return _connected;
+  }*/
+
+
+  int32_t read(uint8_t *buffer, uint32_t length) {
+    return WiFiUDP::read(buffer, length);
+  }
+  void write(uint8_t *buffer, uint32_t length) {
+    WiFiUDP::write(buffer, length);
+  }
+  int beginPacket(IPAddress ip, uint16_t port) {
+    return WiFiUDP::beginPacket(ip, port);
+  }
+  int endPacket() {
+    return WiFiUDP::endPacket();
+  }
+
+  void flush() {
+    WiFiUDP::flush();
+  }
+
+  /*
+    int print(const char *format, ...){return 0;}
+    int print(uint8_t a, ...){return 0;}
+    int printf(const char *format, ...){return 0;}
+  */
+
+private:
+  IPAddress mRemoteIP;
+  uint16_t mRemotePort;
+  uint16_t mLocalPort;
+  //long long int lastUdpWriteTime;
+  uint32_t lastUdpWriteTime;
+  bool endSent;
+
+public:
+  IPAddress remoteIP() {
+    return mRemoteIP;
+  }
+
+  uint16_t remotePort() {
+    return mRemotePort;
+  }
+
+  uint16_t localPort() {
+    return mLocalPort;
+  }
+
+  void stop() {
+    WiFiUDP::stop();
+    _connected = false;
+  }
+
+  int available() {
+    /*if(_fd < 0) {
+      return 0;
+    }*/
+    //log_d("available...");
+    WiFiUDP::parsePacket();
+    int len = WiFiUDP::available();
+    if(len <= 0) {
+      return 0;
+    }
+    if(len > 0) {
+      log_d("available %d\n", len);
+    }
+    return len;
+  }
+
+  int connect(IPAddress &ip, uint16_t port, int32_t timeout) {
+    log_d("Connection(UDP)::connect\n");
+    /*if(WiFiUDP::beginPacket(ip, port) <= 0) {
+      return 0;
+    }*/
+    WiFiUDP::begin(mLocalPort);
+    mRemotePort = 5060;//port;
+    mRemoteIP = ip;
+    //_fd = WiFiUDP::getUdpFd();
+    _connected = true;
+    log_d("Connection(UDP)::connect success\n");
+
+    return 1;
+  }
+
+  bool stale();
+
+};
+
+class TCP_SIPConnection : public WiFiClient, public Connection {
+public:
+  TCP_SIPConnection() : Connection() { /*, WiFiClient()*/
+    log_e("TCP_SIP_Connection constructor...");
+  }
+  ~TCP_SIPConnection() {
+    log_e("~TCP_SIPConnection called");
+  }
+
+  bool isUdp() {
+    return false;
+  }
+  bool isTcp() {
+    return true;
+  }
+
+  uint8_t connected() {
+    /*log_e("TCP_SIPConnection::connected()");*/return WiFiClient::connected();
+  }
+  IPAddress remoteIP() {
+    log_e("TCP_SIPConnection::remoteIP()");
+    return WiFiClient::remoteIP();
+  }
+  uint16_t remotePort() {
+    log_e("TCP_SIPConnection::remotePort()");
+    return WiFiClient::remotePort();
+  }
+  uint16_t localPort() {
+    log_e("TCP_SIPConnection::localPort()");
+    return WiFiClient::localPort();
+  }
+  void stop() {
+    log_e("TCP_SIPConnection::stop()");
+    WiFiClient::stop();
+  }
+  int available() {
+    /*log_e("TCP_SIPConnection::available()");*/return WiFiClient::available();
+  }
+  int32_t read(uint8_t *buffer, uint32_t length) {
+    return WiFiClient::read(buffer, length);
+  }
+  void write(uint8_t *buffer, uint32_t length) {
+    WiFiClient::write(buffer, length);
+  }
+  int connect(IPAddress &ip, uint16_t port, int32_t timeout) {
+    log_e("TCP_SIPConnection::connect()");
+    return WiFiClient::connect(ip, port, timeout);
+  }
+  int beginPacket(IPAddress ip, uint16_t port) {
+    log_e("tcp should not call beginPacket!\n");
+    return 0;
+  }
+  int endPacket() {
+    log_e("tcp should not call endPacket!\n");
+    return 0;
+  }
+
+  void flush() {
+    log_e("TCP_SIPConnection::flush()");
+    WiFiClient::flush();
+  }
+  /*
+  int print(const char *format, ...){return 0;}
+  int print(uint8_t a, ...){return 0;}
+  int printf(const char *format, ...){return 0;}*/
+
+  /* this method is already implemented in the cpp.
+  bool stale() {
+    return 0;
+  }*/
+
+};
+
+
 
 class TinySIP {
 
@@ -259,6 +525,19 @@ public:
   static const StateFlags_t EVENT_INVITE_TIMEOUT = 0x800;
   static const StateFlags_t EVENT_PONGED = 0x1000;
   static const StateFlags_t EVENT_INCOMING_MESSAGE = 0x2000;        // TODO
+
+  /*bool endUdpSending() {
+    if(tcpProxy) {
+      //log_d("connected() tcpProxy NOT null");
+
+
+      return tcpProxy->connected();
+
+    } else {
+      log_d("connected() tcpProxy null");
+      return false;
+    }
+  }*/
 
   bool isBusy() {
     return currentCall!=nullptr && !currentCall->terminated && (currentCall->confirmed || currentCall->early);
@@ -315,6 +594,8 @@ public:
   int acceptCall();
   int declineCall();
   int terminateCall(uint32_t now);
+  int wifiTerminateCall();
+  void rtpSilent();
   StateFlags_t checkCall(uint32_t msNow);
   TextMessage* checkMessage(uint32_t msNow, uint32_t timeNow, bool useTime);
   int registration();
@@ -346,6 +627,9 @@ public:
 #endif // TINY_SIP_DEBUG 
 
 protected:
+
+  //logging SIP messages in a more readable way
+  char TmpStringToSIPLogs[2048];
 
   // Messages
   LinearArray<TextMessage*, LA_EXTERNAL_RAM> textMessages;      // incoming messages in RAM waiting to be saved to flash
@@ -608,8 +892,8 @@ protected:
   int sendResponse(Dialog* diag, Connection& tcp, uint16_t code, const char* reason, bool sendSdp=false);
 
   // Connections
-  bool ensureIpConnection(Connection*& tcp, IPAddress &ip, uint16_t port, bool forceRenew=false);
-  IPAddress ensureConnection(Connection*& tcp, const char* addrSpec, bool forceRenew=false);
+  bool ensureIpConnection(Connection*& tcp, IPAddress &ip, uint16_t port, bool forceRenew=false, int32_t timeout=5000);
+  IPAddress ensureConnection(Connection*& tcp, const char* addrSpec, bool forceRenew=false, int32_t timeout=5000);
   Connection* getConnection(bool isClient);
 
   // Parsing
@@ -637,10 +921,16 @@ public:
   static bool retrieveGenericParam(const char* p, const char* const parName, const char sep, char** val);
   static uint8_t methodType(const char* methd);
 
+  //this variable fixes restart problem on calling a not registered sip info.
+  int triedToMakeCallCounter;
+
 protected:
   // Helper routines
   // TODO: make some of the header methods `static`
 
+  bool connectReturnedFalse;
+
+  void freeNullConnectionProxyObject(bool isProxy);
   // - these headers are recommended to be appear towards the top (Via, Route, Record-Route, Proxy-Require, Max-Forwards, and Proxy-Authorization), p. 30
   static void sendHeaderVia(Connection& tcp, String& thisIp, uint16_t port, const char* branch);
   void sendHeadersVia(Connection& tcp);             // copy Via from request
@@ -664,6 +954,7 @@ protected:
     sendBodyHeaders(tcp, 0, NULL);
   };
   void sendHeadersToFrom(Connection& tcp, const Dialog* diag=NULL);                        // used for REGISTER method and Dialogs
+  void sendByeHeadersToFrom(Connection& tcp, const Dialog* diag);
 
   void newBranch(char* dStr);    // TODO: static
   void newLocalTag(bool caller);

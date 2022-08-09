@@ -1,3 +1,38 @@
+0.8.29rc2:
+    Major:
+	- Issue #64 (firmware fix for RC car.) Fixed.
+	- Issue #95 (Added $ sign and other symbol to "*" key. Now "*" key support these symbols .,!?@$/+-=%^ _:;'*#) Partially Fixed.
+	- Issue #69 (Call is not permitted when WiFi is not connected) Fixed.
+	- Issue #68 and #69 (Add popups for failed calls: no wifi conn, no sip conn, no sip uri) Fixed.
+	- Fixed WiFiClient (tcp) connect call blocks the GUI, so it is fixed by putting the connect timeout back.
+	- Fixed Reboot or crash problem on being not able to connect with tcp to the primary SIP server. Absence of virtual destructor of the base class Connection was casuing this crash.
+	- Issue #38 (Keep calling when hang up before answer. Cannot hang up when the call is already terminated.) Fixed.
+	- Issue #109 (ensureIpConnection() should not block.) Fixed
+	- Issue #79 (UDP_SIP - TCP_SIP switch at run time by using a ChoiceWidget) Fixed.
+	- Issue #96 (WiPhone keeps vibrating when trying to reject received call using End Call button.) Fixed 
+    Minor:
+	- Issue #11 ("sip:" in Address book) Fixed.
+	- Fixed Menu responds with difficulties while WiPhone tries to reconnect to a SIP server. It waits 10 s before reconnect again.
+
+
+0.8.29rc1:
+    Major:
+    - Issue #79 added UDP_SIP feature by switchable with config.h at compile time 
+    - Fixed: WiPhone crash when there is multiple multimedia descriptors 'm' in SDP message
+    - fixed detecting if other party is disconnected from internet connection. Now if other party has disconnected then wiphone
+	  can detect it and destroy the dialog, hang the call
+    - Fixed SIP Registering after WIFI is disconnected and reconnected again
+    - Fixed crash on sending invite for a not registered callee
+    - Issue #68 (WiPhone restarts when tries to call a contact without sip info (Exception un-handled)) Fixed.
+    - Issue #69 (Hanging up call is not working when WiPhone is not connected to WiFi.) Fixed.
+    - Issue #14 (While making a failed call, the firmware hangs and ends in reboot: When I make a failed call, the firmware hangs 
+	   and ends in reboot.) Fixed.
+	- Issue #66 (Removed old board definitions, added #define for pogo pins and moved #define LORA_MESSAGING to Hardware.h) Partially Fixed.
+	
+    Minor:
+	- Fixed SIP logs are printed as character by character so they cannot be read easily.
+
+
 0.8.28:
     Major:
     - added headless tests

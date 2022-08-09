@@ -53,6 +53,10 @@ extern AUDIO_CODEC_CLASS  codec;
 #define LOUDSPEAKER 1
 #define EARSPEAKER 0
 
+#define STP_SILENT_PERIOD 60000  // to detect rtp silent
+extern uint8_t    rtpSilentPeriod;  // for detection of other party rtp stream silent
+#define RTP_SILENT_ON     0x02
+#define RTP_SILENT_OFF    0x00
 /* Description
  *     used for profiling the audio loop
  */

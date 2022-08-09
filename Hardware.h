@@ -30,22 +30,22 @@ governing permissions and limitations under the License.
 
 /* ===== HARDWARE SELECTION ===== */
 #define WIPHONE_INTEGRATED_1_4      // Aamir's preproduction version
-//#define WIPHONE_INTEGRATED_1_3      // Mr. Tan's preproduction version
-//#define WIPHONE_MAINBOARD_2         // the big dev board
-#define WIPHONE_INTEGRATED_1        // single board which integrates all the hardware
-#define WIPHONE_BOARD               // are pins 36 and 38 available? is battery gauge on the board? INVERTED_LED?  (as oposed to a random dev board)
+#define WIPHONE_BOARD
 #define WIPHONE_KEYBOARD            // MZJ keyboard layout (otherwise - stock keyboard)
 #define LCD_DRIVER          LCD_DRIVER_ST7789V
 #define AUDIO_CODEC         8750
+
+
+// Daughter Boards
+
 //#define MOTOR_DRIVER        8833    // 8833 - include library DRV8833.h
-#define LED_BOARD                   // initialize APA102 driver and enable "LED Board" app
+//#define LED_BOARD                   // initialize APA102 driver and enable "LED Board" app
+#define LORA_MESSAGING
 
 #ifndef TEST_DB_PINS
 #define USER_SERIAL                 // listen to user hardware UART? (pins 22, 38)
 #endif
-#define USER_SERIAL_BAUD          9600
-#define USER_SERIAL_CONFIG        SERIAL_8N1
-#define USER_SERIAL_BUFFER_SIZE   2048
+
 //#define USE_VIRTUAL_KEYBOARD
 #define VIRTUAL_KEYBOARD_PORT     10101
 //#define AUDIO_MCLK_CRYSTAL_KHZ    12228     // Normal mode
@@ -71,11 +71,6 @@ governing permissions and limitations under the License.
 
 #include "src/drivers/SN7326.h"     // keypad
 #include "src/drivers/CW2015.h"     // battery gauge
-
-#if defined(MOTOR_DRIVER) && MOTOR_DRIVER == 8833
-#include "src/drivers/DRV8833/DRV8833.h"
-extern DRV8833 motorDriver;
-#endif
 
 /* ============ PINOUT ========== */
 #ifdef WIPHONE_INTEGRATED_1_4
@@ -107,9 +102,6 @@ extern SX1509 gpioExtender;
 #define I2S_MOSI_PIN                    21
 #define I2S_MISO_PIN                    34
 
-#define USER_SERIAL_RX                  38                   // rev1.3 = 22, rev1.4 = 38
-#define USER_SERIAL_TX                  32
-
 // Shared pins between SD card and TFT screen
 #define SPI_SCL_PIN                     TFT_SCLK             // must be 18
 #define SPI_SDA_PIN                     TFT_MOSI             // must be 23
@@ -128,149 +120,49 @@ extern SX1509 gpioExtender;
 #define POWER_CHECK                     EXTENDER_PIN(2)      // END / POWER_OFF button (below BACK button on the right)
 #define ENABLE_DAUGHTER_33V             EXTENDER_PIN(4)
 
-#else // not WIPHONE_INTEGRATED_1_4
+// Signals to POGO Connectors
 
-#ifdef WIPHONE_INTEGRATED_1_3
-#define WIPHONE_INTEGRATED
+#define GPIO12      12
+#define GPIO13      13
+#define GPIO14      14
+#define GPIO15      15
+#define GPIO52      25
+#define GPIO27      27
+#define GPIO32      32
+#define GPI138      38
 
-#include "src/drivers/SN7325.h"       // GPIO extender
+#define D0          EXTENDER_PIN(10)
+#define D1          EXTENDER_PIN(11)
+#define D2          EXTENDER_PIN(12)
+#define D3          EXTENDER_PIN(13)
+#define D4          EXTENDER_PIN(14)
+#define D5          EXTENDER_PIN(15)
 
-#define GPIO_EXTENDER_INTERRUPT_PIN     39
-#define TF_CARD_DETECT_PIN              38      // rev1.3 = 38, rev1.4 = -1
-#define BATTERY_PPR_PIN                 37      // TODO
-#define BATTERY_CHARGING_STATUS_PIN     36
-#define AMPLIFIER_SHUTDOWN              EXTENDER_PIN_B7      // WiPhone #1 - 22, WiPhone #2 - EXTENDER_PIN_B7
-
-#define KEYBOARD_RESET_PIN              -1
-#define KEYBOARD_INTERRUPT_PIN          35
-#define I2C_SDA_PIN                     15
-#define I2C_SCK_PIN                     25
-
-#define I2S_MCLK_GPIO0
-#define I2S_BCK_PIN                     4      // WiPhone #1 - 19, WiPhone #2 - 4 (wp05)
-#define I2S_WS_PIN                      33
-#define I2S_MOSI_PIN                    21
-#define I2S_MISO_PIN                    34
-
-#define USER_SERIAL_RX                  22      // rev1.3 = 22, rev1.4 = 38
-#define USER_SERIAL_TX                  32
-
-// Shared pins between SD card and TFT screen
-#define SPI_SCL_PIN                     TFT_SCLK      // must be 18
-#define SPI_SDA_PIN                     TFT_MOSI      // must be 23
-#define SPI_MISO_PIN                    TFT_MISO      // must be 19
-
-#define SD_CARD_CS_PIN                  2
-#define LCD_LED_PIN                     -1             // WiPhone #1 = EXTENDER_PIN_A1,  WiPhone #2 = 0 (wp05), WiPhone #3 (rev. after 1.3) = -1
-#define LCD_RST_PIN                     -1
-#define LCD_RS_PIN                      TFT_DC        // must be 26
-#define LCD_CS_PIN                      TFT_CS        // must be 5
-
-#define KEYBOARD_LED                    EXTENDER_PIN_A0
-#define VIBRO_MOTOR_CONTROL             EXTENDER_PIN_B6
-#define POWER_CONTROL                   EXTENDER_PIN_A1
-#define POWER_CHECK                     EXTENDER_PIN_A2       // END / POWER_OFF button (below BACK button on the right)
-#define ENABLE_DAUGHTER_33V             EXTENDER_PIN_A3
-
-#else // not WIPHONE_INTEGRATED_1_3
-#ifdef WIPHONE_MAINBOARD_2
-
-#include "src/drivers/SN7325.h"       // GPIO extender
-
-#define GPIO_EXTENDER_INTERRUPT_PIN     39
-#define TF_CARD_DETECT_PIN              38
-#define BATTERY_PPR_PIN                 37      // TODO: this effectively detects if USB is connected
-#define BATTERY_CHARGING_STATUS_PIN     36
-#define AMPLIFIER_SHUTDOWN              EXTENDER_PIN_B7
-
-#define KEYBOARD_RESET_PIN              -1
-#define KEYBOARD_INTERRUPT_PIN          35
-#define I2C_SDA_PIN                     15
-#define I2C_SCK_PIN                     25
-
-#define I2S_BCK_PIN                     4
-#define I2S_WS_PIN                      33
-#define I2S_MOSI_PIN                    21
-#define I2S_MISO_PIN                    34
-
-#define LCD_RS_PIN                      26
-#define LCD_CS_PIN                      5
-#define LCD_SCL_PIN                     18
-#define LCD_SDA_PIN                     23
-#define SD_CARD_CS_PIN                  2        // SD card shares CS pin with LCD, however LCD is supposed to be HIGH to select
-
-#define KEYBOARD_LED                    EXTENDER_PIN_A0
-#define LCD_LED_PIN                     0
-#define LCD_RST_PIN                     -1
-#define LCD_MISO_PIN                    19                // used for SD card
-#define USB_POWER_DETECT_PIN            EXTENDER_PIN_A2
-#define VIBRO_MOTOR_CONTROL             EXTENDER_PIN_B6
-
-#else // not WIPHONE_MAINBOARD_2
-#ifdef WIPHONE_INTEGRATED_1
-#define WIPHONE_INTEGRATED
-
-#define GPIO_EXTENDER_INTERRUPT_PIN     39
-#define TF_CARD_DETECT_PIN              38
-#define BATTERY_PPR_PIN                 37      // TODO
-#define BATTERY_CHARGING_STATUS_PIN     36
-#define AMPLIFIER_SHUTDOWN              22      // WiPhone #1 - 22, WiPhone #2 - EXTENDER_PIN_B7
-
-#define KEYBOARD_RESET_PIN              -1
-#define KEYBOARD_INTERRUPT_PIN          35
-#define I2C_SDA_PIN                     15
-#define I2C_SCK_PIN                     25
-
-#define I2S_BCK_PIN                     19      // WiPhone #1 - 19, WiPhone #2 - 4 (wp05)
-#define I2S_WS_PIN                      33
-#define I2S_MOSI_PIN                    21
-#define I2S_MISO_PIN                    34
-
-#define LCD_RS_PIN                      26
-#define LCD_CS_PIN                      5
-#define LCD_SCL_PIN                     18
-#define LCD_SDA_PIN                     23
-#define SD_CARD_CS_PIN                  LCD_CS_PIN        // SD card shares CS pin with LCD, however LCD is supposed to be HIGH to select
-
-#define KEYBOARD_LED                    EXTENDER_PIN_A0
-#define LCD_LED_PIN                     EXTENDER_PIN_A1             // WiPhone #1 - EXTENDER_PIN_A1,  WiPhone #2 - 0 (wp05)
-#define LCD_RST_PIN                     -1
-#define LCD_MISO_PIN                    -1                          // WiPhone #1 - -1,  WiPhone #2 - 19 (wp05)
-#define USB_POWER_DETECT_PIN            EXTENDER_PIN_A2
-#define VIBRO_MOTOR_CONTROL             EXTENDER_PIN_B6
-
-# else // not WIPHONE_INTEGRATED
-
-#ifdef WIPHONE_BOARD
-#define USB_POWER_DETECT_PIN          37    // 38 (real USB_POWER_DETECT)
-//#define POWER_PRESENCE_PIN            37
-#define BATTERY_CHARGING_STATUS_PIN   36
-#endif
-
-#define KEYBOARD_RESET_PIN            27
-#define KEYBOARD_INTERRUPT_PIN        34
-#define I2C_SDA_PIN                   15
-#define I2C_SCK_PIN                   14  // 25 (new) / 14 (old)
-
-#define I2S_BCK_PIN                   19
-#define I2S_WS_PIN                    2  // 33 (new) /  2 (old)
-#define I2S_MOSI_PIN                  21
-#define I2S_MISO_PIN                  35  // 32 (new) / 12 (old)
-
-#define LCD_RS_PIN                    26
-#define LCD_CS_PIN                    5
-#define LCD_SCL_PIN                   18
-#define LCD_SDA_PIN                   23
-#define LCD_LED_PIN                   13  // 22 (new) / 13 (old)
-#define LCD_RST_PIN                   32  // 14 or -1 (new) / 32 (old)
-#define LCD_MISO_PIN                  -1
-
-#endif // WIPHONE_INTEGRATED
-#endif // WIPHONE_MAINBOARD_2
-#endif // WIPHONE_INTEGRATED_1_3
 #endif // WIPHONE_INTEGRATED_1_4
 
 
+/* =========== LoRa ========= */
+//#if defined(LORA_MESSAGING)
+#define RFM95_RST     -1
+#define RFM95_CS      27
+#define RFM95_INT     38
+
+#define HSPI_MISO   12
+#define HSPI_MOSI   13
+#define HSPI_SCLK   14
+#define HSPI_SS     27
+
+#define RF95_FREQ 915.0
+//#endif
+
+/* ===========Daughter Board Serial========= */
+#if defined(USER_SERIAL)
+#define USER_SERIAL_RX                  38                   // rev1.4 = 38
+#define USER_SERIAL_TX                  32
+#define USER_SERIAL_BAUD          9600
+#define USER_SERIAL_CONFIG        SERIAL_8N1
+#define USER_SERIAL_BUFFER_SIZE   2048
+#endif
 /* =========== LED BOARD ========= */
 #if defined(LED_BOARD)
 #include "src/drivers/APA102/APA102.h"
@@ -282,6 +174,18 @@ extern APA102<LED_BOARD_DATA, LED_BOARD_CLOCK> ledBoard;        // can be any LE
 #if GPIO_EXTENDER == 1509
 #define LED_BOARD_ENABLE      EXTENDER_PIN(11)
 #endif
+#endif
+
+/* =========== RC Car ========= */
+#if defined(MOTOR_DRIVER) && MOTOR_DRIVER == 8833
+#include "src/drivers/DRV8833/DRV8833.h"
+extern DRV8833 motorDriver;
+#define AIN1 12
+#define AIN2 13
+#define BIN1 27
+#define BIN2 14
+#define MotorEN 32 
+#define Fault 38
 #endif
 
 
@@ -345,18 +249,5 @@ extern SN7325 gpioExtender;
 #define WIPHONE_KEY_MASK_F3        0b0100000000000000000000000u
 #define WIPHONE_KEY_MASK_F4        0b1000000000000000000000000u
 
-
-/* =========== LoRa ========= */
-
-#define RFM95_RST     -1
-#define RFM95_CS      27
-#define RFM95_INT     38
-
-#define HSPI_MISO   12
-#define HSPI_MOSI   13
-#define HSPI_SCLK   14
-#define HSPI_SS     27
-
-#define RF95_FREQ 915.0
 
 #endif // __HARDWARE_H

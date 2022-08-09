@@ -35,6 +35,7 @@ Lora::Lora() {
 }
 
 void Lora::setup() {
+  #ifdef LORA_MESSAGING
   log_i("Initialising LoRa: %d", ESP.getFreeHeap());
   loraSPI = new RHSoftwareSPI();
   rf95 = new RH_RF95(RFM95_CS, RFM95_INT, *loraSPI);
@@ -46,6 +47,7 @@ void Lora::setup() {
   rf95->setTxPower(23, false);
 
   log_v("Free memory after LoRa: %d %d", ESP.getFreeHeap(), heap_caps_get_free_size(MALLOC_CAP_32BIT));
+  #endif
 }
 
 TextMessage* Lora::parse_message(const uint8_t *message, uint8_t len) {

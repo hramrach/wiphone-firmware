@@ -33,7 +33,7 @@ public:
   RTPacket() : version_(2), marker_(false), payload_type_(0), sequence_(0), timestamp_(0), ssrc_(0), csrc_(0) {};
 
   RTPacketHeader *generateHeader(uint32_t payloadLen) {
-    
+
 
     header_.vpxcc =  (2 << 6) | (0 << 5) | (0 << 4) | 0;
     header_.ptm = this->payload_type_;
@@ -57,7 +57,7 @@ public:
     } else {
       ++this->ssrc_;
     }
-    
+
     this->sequence_ = Random.random();//4649;
     this->timestamp_ = Random.random();//*/2495961303;
     //this->ssrc_ = 1267049011;

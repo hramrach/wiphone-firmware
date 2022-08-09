@@ -84,7 +84,7 @@ static int compVersions ( const char * version1, const char * version2 ) {
   if (rc1 > rc2) {
     return 1;
   }
-  
+
   return 0;
 }
 
