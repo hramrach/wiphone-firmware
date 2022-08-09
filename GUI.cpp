@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -22,6 +22,7 @@ governing permissions and limitations under the License.
 #include "src/assets/image_256.h"
 #include "src/assets/image_jpg.h"
 #include "src/assets/ackman_data.h"
+#include <esp_wifi.h>
 
 // TODO:
 // - optimization: return DO_NOTHING for irrelevant events
@@ -30,6 +31,9 @@ governing permissions and limitations under the License.
 
 LCD* static_lcd = NULL;
 bool UDP_SIP = false;
+bool loudSpkr = false;
+bool wifiOn = true;
+
 
 uint16_t GUI::batteryExtraLength = 0;
 
@@ -1965,6 +1969,7 @@ MyApp::~MyApp() {
 
   delete demoCaption;
   delete debugCaption;
+  //sdelete debugCaption_loudSpkr;
   //delete nameCaption;
   //delete uriCaption;
 }
@@ -1997,7 +2002,7 @@ appEventResult MyApp::processEvent(EventType event) {
     char buff[70];
     snprintf(buff, sizeof(buff), "Speaker %d dB, Headphones %d dB, Loudspeaker %d dB",  earpieceVol, headphonesVol, loudspeakerVol);
     debugCaption->setText(buff);
-
+    
   }
 
   return res;
@@ -2822,16 +2827,18 @@ AudioConfigApp::AudioConfigApp(Audio* audio, LCD& lcd, ControlState& state, Head
   audio->getVolumes(earpieceVol, headphonesVol, loudspeakerVol);
   if ((ini.load() || ini.restore()) && !ini.isEmpty()) {
     // Check version of the file format
-    if (ini[0].hasKey("v") && !strcmp(ini[0]["v"], "1")) {
-      log_d("configs file found");
-      IF_LOG(VERBOSE)
-      ini.show();
+    // if (ini[0].hasKey("v")){ //&& !strcmp(ini[0]["v"], "1")) {
+    //   log_d("configs file found");
+    //   IF_LOG(VERBOSE)
+    //   ini.show();
       if (ini.hasSection("audio")) {
+        log_d("getting audio info");
         earpieceVol = ini["audio"].getIntValueSafe(earpieceVolField, earpieceVol);
         headphonesVol = ini["audio"].getIntValueSafe(headphonesVolField, headphonesVol);
         loudspeakerVol = ini["audio"].getIntValueSafe(loudspeakerVolField, loudspeakerVol);
       }
-    } else {
+    //}
+     else {
       log_e("configs file corrup or unknown format");
       IF_LOG(VERBOSE)
       ini.show();
@@ -4649,13 +4656,13 @@ void SipAccountsApp::redrawScreen(bool redrawAll) {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Call app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 CallApp::CallApp(Audio* audio, LCD& lcd, ControlState& state, bool isCaller, HeaderWidget* header, FooterWidget* footer)
-  : WindowedApp(lcd, state, header, footer), FocusableApp(2), audio(audio), caller(isCaller) {
+  : WindowedApp(lcd, state, header, footer), FocusableApp(2), audio(audio),ini(Storage::ConfigsFile), caller(isCaller) {
   log_d("CallApp create");
   const char* s;
 
   // Create and arrange widgets
   header->setTitle(isCaller ? "Calling" : "Call");
-  footer->setButtons(isCaller ? NULL : "Accept", isCaller ? "Hang up" : "Reject");
+  footer->setButtons(isCaller ? "Loud Spkr" : "Accept", isCaller ? "Hang up" : "Reject");
   clearRect = new RectWidget(0, header->height(), lcd.width(), lcd.height() - header->height() - footer->height(), WP_COLOR_1);
 
   // State caption in the middle
@@ -4683,9 +4690,9 @@ CallApp::CallApp(Audio* audio, LCD& lcd, ControlState& state, bool isCaller, Hea
   yOff += uriCaption->height() + 20;
   s = controlState.lastReasonDyn != NULL ? (const char*) controlState.lastReasonDyn : "";
   debugCaption = new LabelWidget(0, yOff, lcd.width(), fonts[AKROBAT_BOLD_16]->height(), s, WP_DISAB_0, WP_COLOR_1, fonts[AKROBAT_BOLD_16], LabelWidget::CENTER);
-
+  
   reasonHash = hash_murmur(s);
-  log_i("hash_murmur");
+  log_i("hash_murmur");  
   audio->chooseSpeaker(LOUDSPEAKER);
 }
 
@@ -4694,6 +4701,7 @@ CallApp::~CallApp() {
 
   delete stateCaption;
   delete debugCaption;
+  //delete debugCaption_loudSpkr;
   delete nameCaption;
   delete uriCaption;
 }
@@ -4741,7 +4749,7 @@ appEventResult CallApp::processEvent(EventType event) {
     // Accept call
     if (controlState.sipState == CallState::BeingInvited) {
       stateCaption->setText("Accepting");
-      footer->setButtons(NULL, "Hang up");
+      footer->setButtons("Loud Spkr", "Hang up");
       controlState.setSipState(CallState::Accept);
       res |= REDRAW_SCREEN | REDRAW_FOOTER;
       audio->chooseSpeaker(EARSPEAKER);
@@ -4787,19 +4795,137 @@ appEventResult CallApp::processEvent(EventType event) {
   } else if (event == WIPHONE_KEY_UP || event == WIPHONE_KEY_DOWN) {
 
     int8_t earpieceVol, headphonesVol, loudspeakerVol;
-    audio->getVolumes(earpieceVol, headphonesVol, loudspeakerVol);
+    //audio->getVolumes(earpieceVol, headphonesVol, loudspeakerVol);
+    if ((ini.load() ) && !ini.isEmpty()) {
+      if (ini.hasSection("audio")) {
+          log_d("getting audio info");
+          earpieceVol = ini["audio"].getIntValueSafe(earpieceVolField, earpieceVol);
+          headphonesVol = ini["audio"].getIntValueSafe(headphonesVolField, headphonesVol);
+          loudspeakerVol = ini["audio"].getIntValueSafe(loudspeakerVolField, loudspeakerVol);
+        }
+      //}
+      else {
+        log_e("configs file corrup or unknown format");
+        IF_LOG(VERBOSE)
+        ini.show();
+      }
+    }
+    log_d("Volumes are earspkr %d headphone %d loudspkr %d", earpieceVol,headphonesVol,loudspeakerVol );
+    
     int8_t d = event == WIPHONE_KEY_UP ? 6 : -6;
     earpieceVol += d;
     headphonesVol += d;
     loudspeakerVol += d;
+    uint8_t precentage = 0x0;
+    uint8_t precentageLoud = 0x0;
+    //audio->setVolumes(earpieceVol, headphonesVol, loudspeakerVol);
+    //audio->getVolumes(earpieceVol, headphonesVol, loudspeakerVol);
+    char buff[50];
+
+ 
+    if (!ini.hasSection("audio")) {
+        ini.addSection("audio");
+      }
+    ini["audio"][earpieceVolField] = earpieceVol;
+    ini["audio"][headphonesVolField] = headphonesVol;
+    ini["audio"][loudspeakerVolField] = loudspeakerVol;
+    if (ini.store()) {
+      log_d("new audio settings are saved");
+    }
+    ini.unload();
     audio->setVolumes(earpieceVol, headphonesVol, loudspeakerVol);
     audio->getVolumes(earpieceVol, headphonesVol, loudspeakerVol);
-    char buff[70];
-    snprintf(buff, sizeof(buff), "Speaker %d dB, Headphones %d dB, Loudspeaker %d dB",  earpieceVol, headphonesVol, loudspeakerVol);
+    log_d("New Volumes are earspkr %d headphone %d loudspkr %d", earpieceVol,headphonesVol,loudspeakerVol );
+    
+    if (earpieceVol == -69){
+      precentage = 0x0;
+      precentageLoud = 0x0;
+    } 
+    if ((earpieceVol == -66) || (earpieceVol == -63) ) {
+      precentage = 0x04;
+      precentageLoud = 8;
+    } 
+    if ((earpieceVol == -60) || (earpieceVol == -57)) {
+      precentage = 12;
+      precentageLoud = 16;
+    } 
+    if ((earpieceVol == -54) || (earpieceVol == -51)) {
+      precentage = 20;
+      precentageLoud = 24;
+    } 
+    if ((earpieceVol == -48) || (earpieceVol == -45)) {
+      precentage = 28;
+      precentageLoud = 32;
+    } 
+    if ((earpieceVol == -42) || (earpieceVol == -39)) {
+      precentage = 36;
+      precentageLoud = 40;
+    } 
+    if ((earpieceVol == -36) || (earpieceVol == -33)) {
+      precentage = 44;
+      precentageLoud = 48;
+    } 
+    if ((earpieceVol == -30) || (earpieceVol == -27)) {
+      precentage = 52;
+      precentageLoud = 56;
+    } 
+    if ((earpieceVol == -24) || (earpieceVol == -21)) {
+      precentage = 60;
+      precentageLoud = 64;
+    } 
+    if ((earpieceVol == -18) || (earpieceVol == -15)) {
+      precentage = 68;
+      precentageLoud = 72;
+    } 
+    if ((earpieceVol == -12) || (earpieceVol == -9)) {
+      precentage = 76;
+      precentageLoud = 80;
+    } 
+    if ((earpieceVol == -6) || (earpieceVol == -3)) {
+      precentage = 84;
+      precentageLoud = 90;
+    } 
+    if ((earpieceVol == 0) || (earpieceVol == 3)) {
+      precentage = 92;
+      precentageLoud = 100;
+    } 
+    if (earpieceVol == 6) {
+      precentage = 100;
+      precentageLoud = 100;
+    }
+    log_d("precentage is %d %%", precentage);
+    log_d("earpieceVol is %d %%", earpieceVol);
+    if(loudSpkr == false){
+      snprintf(buff, sizeof(buff), "Speaker %d %%, Headphones %d %%", precentage, precentage);
+    } else {
+      snprintf(buff, sizeof(buff), "    Loudspeaker %d %%",  precentageLoud);
+    }
+    
+    precentage = 0x0;
+    precentageLoud = 0x0;
     debugCaption->setText(buff);
+    //debugCaption_loudSpkr->setText(loudSpkrBuff);
 
+    res |= REDRAW_SCREEN;
+  } 
+  
+  if (event == WIPHONE_KEY_SELECT) {
+    if (controlState.sipState == CallState::Call) {
+      if (loudSpkr == false){
+        footer->setButtons("Ear Spkr", "Hang up");
+        res |= REDRAW_SCREEN | REDRAW_FOOTER;
+        audio->chooseSpeaker(!EARSPEAKER);
+        loudSpkr = true;
+      } else {
+        footer->setButtons("Loud Spkr", "Hang up");
+        res |= REDRAW_SCREEN | REDRAW_FOOTER;
+        audio->chooseSpeaker(EARSPEAKER);
+        loudSpkr = false;
+      }
+      
+    }
   }
-
+  log_d("res inisde processevent is %x", res);
   return res;
 }
 
@@ -4813,7 +4939,9 @@ void CallApp::redrawScreen(bool redrawAll) {
 
     ((GUIWidget*) iconRect)->redraw(lcd);
     ((GUIWidget*) stateCaption)->redraw(lcd);
+    //((GUIWidget*) debugCaption_loudSpkr)->redraw(lcd);
     ((GUIWidget*) debugCaption)->redraw(lcd);
+    
     ((GUIWidget*) nameCaption)->redraw(lcd);
     ((GUIWidget*) uriCaption)->redraw(lcd);
 
@@ -4829,7 +4957,18 @@ void CallApp::redrawScreen(bool redrawAll) {
     if (debugCaption->isUpdated()) {
       log_d("debugCaption updated");
       ((GUIWidget*) debugCaption)->redraw(lcd);
+      //char updateBuff[30] = {0x0};
+      //(const char*)updateBuff = controlState.lastReasonDyn != NULL ? (const char*) controlState.lastReasonDyn : "";
+      // debugCaption->setText((controlState.lastReasonDyn != NULL ? (const char*) controlState.lastReasonDyn : ""));
+      // ((GUIWidget*) debugCaption)->redraw(lcd);
     }
+    // if (debugCaption_loudSpkr->isUpdated()) {
+    //   log_d("debugCaption_loudSpkr updated");
+    //   ((GUIWidget*) debugCaption_loudSpkr)->redraw(lcd);
+      
+    //   debugCaption_loudSpkr->setText("");
+    //   ((GUIWidget*) debugCaption_loudSpkr)->redraw(lcd);
+    // }
     if (nameCaption->isUpdated()) {
       log_d("nameCaption updated");
       ((GUIWidget*) nameCaption)->redraw(lcd);
@@ -4905,11 +5044,37 @@ EditNetworkApp::EditNetworkApp(LCD& lcd, ControlState& state, const char* SSID, 
 
   forgetButton = NULL;
   connectionButton = NULL;
+  wifiOnOff = NULL;
   if (knownNetwork) {
     forgetButton = new ButtonWidget(xOff + saveButton->width() + 2*spacing, yOff, "Forget");
 
     yOff += saveButton->height() + spacing*2;
     connectionButton = new ButtonWidget(xOff, yOff, connectedNetwork ? "Disconnect" : "Connect", ButtonWidget::textWidth("Connecting")+18);
+
+    wifiOnOff = new ChoiceWidget(0, yOff+connectionButton->height(), lcd.width(), 35);
+    wifiOnOff->addChoice("WIFI-ON");
+    wifiOnOff->addChoice("WIFI-OFF");
+    if(wifiOn){
+      wifiOnOff->setValue(0);
+    } else {
+      wifiOnOff->setValue(1);
+    }
+
+    yOff += wifiOnOff->height();
+  
+  } else {
+    
+    wifiOnOff = new ChoiceWidget(0, yOff+saveButton->height(), lcd.width(), 35);
+    wifiOnOff->addChoice("WIFI-ON");
+    wifiOnOff->addChoice("WIFI-OFF");
+    if(wifiOn){
+      wifiOnOff->setValue(0);
+    } else {
+      wifiOnOff->setValue(1);
+    }
+
+    yOff += wifiOnOff->height();
+  
   }
 
   // Load password / populate text
@@ -4934,7 +5099,10 @@ EditNetworkApp::EditNetworkApp(LCD& lcd, ControlState& state, const char* SSID, 
   if (connectionButton != NULL) {
     addFocusableWidget(connectionButton);
   }
-
+  if (wifiOnOff != NULL) {
+    addFocusableWidget(wifiOnOff);
+  }
+  
   setFocus(ssidInput);
   screenInited = false;
 }
@@ -4950,6 +5118,10 @@ EditNetworkApp::~EditNetworkApp() {
   delete passLabel;
   delete passInput;
   delete saveButton;
+  if(wifiOnOff){
+    delete wifiOnOff;
+  }
+  
 }
 
 appEventResult EditNetworkApp::processEvent(EventType event) {
@@ -5034,9 +5206,21 @@ appEventResult EditNetworkApp::processEvent(EventType event) {
       //wifiState.disconnect();
       wifiState.disable();
       quit = true;
+
+      int index = ini.query("s", ssidInput->getText());       // "s" key stands for "SSID"
+      if (index >= 0) {
+        ini[index]["disabled"] = "true";
+        ini.store();
+      } 
     } else {
       if (wifiState.connectTo(ssidInput->getText())) {
         log_d("connecting: %s", ssidInput->getText());
+
+        int index = ini.query("s", ssidInput->getText());       // "s" key stands for "SSID"
+        if (index >= 0) {
+          ini[index]["disabled"] = "false";
+          ini.store();
+        } 
 
         // Change button appearance
         connectionButton->setText("Connecting");
@@ -5082,6 +5266,74 @@ appEventResult EditNetworkApp::processEvent(EventType event) {
 
   }
 
+  
+  if (wifiOnOff != NULL) {
+      log_e("wifiOnOff: %d", wifiOnOff->getValue());
+      esp_err_t err;
+      switch (wifiOnOff->getValue()) {
+      case 0: // wifi ON
+        wifiOn = true;
+        err = esp_wifi_start();
+        if(err != ESP_OK) {
+          log_e("WIFI cann't be started");
+        } else {
+          log_d("WIFI will Start");
+          
+          connectedNetwork = false;
+          
+          if(ssidInput->getText() != NULL){
+            if (wifiState.connectTo(ssidInput->getText())) {
+              log_d("connecting: %s", ssidInput->getText());
+
+              int i = ini.query("s", ssidInput->getText());                   // "s" for "SSID"
+              if (i >= 0 && ini.setUniqueFlag(i, "m") && ini.store()) {       // "m" for "main" (preferred network)
+                log_d("set as preferred network");
+              }
+
+              log_d("waiting for connectionEvent");
+              for (uint8_t j=0; j<50 && !wifiState.isConnectionEvent(); j++) {
+                delay(100);
+              }
+
+              if (wifiState.isConnectionEvent()) {
+                log_d("connection event happened");
+                delay(100);
+                connectionButton->setText("Disconnect");
+              } else {
+                log_d("connection timeout");
+              }
+
+            } else {
+              log_d("could not connect: %s", ssidInput->getText());
+            }
+          }
+        }
+        break;
+      case 1: // wifi OFF
+        wifiOn = false;
+        err = esp_wifi_stop();
+        if(err != ESP_OK) {
+          log_e("WIFI cann't be stopped");
+        } else {
+          log_d("WIFI will be stopped");
+          connectedNetwork = true;
+          if (connectedNetwork) {
+          log_d("disconnecting");
+          
+          wifiState.disable();
+          }
+    
+        }
+        break;
+      default:
+        log_e("Unknown UDP-SIP - TCP-SIP selection: %d", wifiOnOff->getValue());
+        
+      }
+    }
+
+  
+  
+
   return quit ? EXIT_APP : REDRAW_ALL;
 }
 
@@ -5102,7 +5354,10 @@ void EditNetworkApp::redrawScreen(bool redrawAll) {
   if (connectionButton != NULL) {
     ((GUIWidget*) connectionButton)->redraw(lcd);
   }
-
+  if (wifiOnOff != NULL) {
+    ((GUIWidget*) wifiOnOff)->redraw(lcd);
+  }
+  
   screenInited = true;
 }
 

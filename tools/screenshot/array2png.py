@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
-# Copyright © 2019, 2020, 2021 HackEDA, Inc.
+# Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 
 # Licensed under the WiPhone Public License v.1.0 (the "License"); you
 # may not use this file except in compliance with the License. You may

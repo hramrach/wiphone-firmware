@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -682,6 +682,7 @@ bool TinySIP::ensureIpConnection(Connection*& tcp, IPAddress &ipAddr, uint16_t p
     }
   } else {
     log_d("TCP connection is already good");
+    
   }
   return good;
 }
@@ -1552,7 +1553,7 @@ int TinySIP::terminateCall(uint32_t now) {
     if(tcpProxy) {
       int errCancel = requestCancel(*tcpProxy);
       if (errCancel!=TINY_SIP_OK) {
-        log_v("CANCEL error: %d", err);
+        log_v("CANCEL error: %d", errCancel);
       }
     }
     return TINY_SIP_ERR;
@@ -1721,6 +1722,7 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
       log_d("RENEWING: %s", tcpProxy->stale() ? "proxy connection is stale" : "proxy disconnected" );
     } else {
       log_d("RENEWING: %s", "proxy connection doesn't exist" );
+      this->registered = false;
     }
     reconnected = ensureIpConnection(tcpProxy, proxyIpAddr, TINY_SIP_PORT, true, 500);
     if (!reconnected) {
@@ -2216,9 +2218,9 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
       // send REGISTER if nothing happened and the time has come
       registration();
 
-    }
+      }
 
-  } else {
+    } else {
 
     nonFree++;
 

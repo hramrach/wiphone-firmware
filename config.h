@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -26,7 +26,7 @@ governing permissions and limitations under the License.
 //#define STEAL_THE_USER_BUTTONS      // this will switch between 2 different sets of definitions for the user button functions
 #endif
 
-#define FIRMWARE_VERSION "0.8.29"
+#define FIRMWARE_VERSION "0.8.30"
 
 #define BUILD_GAMES
 

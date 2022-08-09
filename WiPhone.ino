@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -822,12 +822,15 @@ void setup() {
   }
 
   int counter = 0;
+  wifiState.loadPreferred();
 
-  wifiState.connectToPreferred();
-  while (!wifiState.isConnected() && ++counter < 10) {
-    log_v("Waiting for wifi: %d %d", counter, ESP.getFreeHeap());
+  if (!wifiState.userDisabled()) {
     wifiState.connectToPreferred();
-    delay(500);
+    while (!wifiState.isConnected() && ++counter < 10) {
+      log_v("Waiting for wifi: %d %d", counter, ESP.getFreeHeap());
+      wifiState.connectToPreferred();
+      delay(500);
+    }
   }
 
   if (!ota.hasJustUpdated() && ota.userRequestedUpdate()) {
@@ -876,6 +879,8 @@ void setup() {
           gui.state.dimAfterMs = ini["screen"].getIntValueSafe("dim_after_s", 20)*1000;
           gui.state.sleeping = ini["screen"].getIntValueSafe("sleeping", 0) > 0;
           gui.state.sleepAfterMs = ini["screen"].getIntValueSafe("sleep_after_s", 30)*1000;
+          gui.state.screenBrightness = gui.state.brightLevel-1; // Forces the new brightness setting to be applied
+          gui.processEvent(0, 0); // Need to call gui event loop so brightness settings are applied
         } else {
           gui.state.brightLevel = 100;
           gui.state.dimming = true;
@@ -1182,7 +1187,7 @@ void loop() {
     }
 
     // Connect to WiFi
-    if (wifiState.doReconnect() && !wifiState.isConnected() && elapsedMillis(now, msLastWifiRetry, WIFI_RETRY_PERIOD_MS)) {
+    if (wifiState.doReconnect() && !wifiState.isConnected() && elapsedMillis(now, msLastWifiRetry, WIFI_RETRY_PERIOD_MS) && !wifiState.userDisabled()) {
       if (wifiState.connectToPreferred()) {
         log_d("Connecting to WiFi");
       } else {
@@ -1388,7 +1393,7 @@ void loop() {
 
         sip.wifiTerminateCall();  // wifi is disconnected but need to destroy this dialogue
         gui.exitCall();
-
+        
         gui.state.setSipState(CallState::HungUp);
         appEventResult res = gui.processEvent(now, CALL_UPDATE_EVENT);
         gui.redrawScreen(res & REDRAW_HEADER, res & REDRAW_FOOTER, res & REDRAW_SCREEN);

@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -87,6 +87,10 @@ public:
     return prefSsidDyn;
   }
 
+  bool userDisabled() {
+    return _userDisabled;
+  }
+
   static constexpr const char* filename = "/networks.ini";
   bool mdnsOk;                // MDNS service is operational
 
@@ -95,6 +99,7 @@ protected:
   char* wifiSsidDyn;    // current (or last) WiFi network
   char* wifiPassDyn;
 
+  bool _userDisabled;
   bool reconnect;             // should it try to reconnect when disconnected? TODO: save this in configs somehow
   bool connected;
   bool connectionEvent;       // connection/disconnection event processed

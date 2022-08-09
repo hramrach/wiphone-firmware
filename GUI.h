@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -2031,7 +2031,11 @@ public:
 
 protected:
   Audio* audio;
+  static const constexpr char* headphonesVolField = "headphones_vol";
+  static const constexpr char* earpieceVolField = "speaker_vol";
+  static const constexpr char* loudspeakerVolField = "loudspeaker_vol";
 
+  CriticalFile ini;
   bool caller;
   bool screenInited = false;
   uint32_t reasonHash;
@@ -2042,6 +2046,7 @@ protected:
 
   LabelWidget*  stateCaption;
   LabelWidget*  debugCaption;
+  LabelWidget*  debugCaption_loudSpkr;
   LabelWidget*  nameCaption;
   LabelWidget*  uriCaption;
 };
@@ -2230,6 +2235,7 @@ protected:
   ButtonWidget* saveButton;
   ButtonWidget* forgetButton;
   ButtonWidget* connectionButton;   // Connect / Disconnect
+  ChoiceWidget* wifiOnOff;
 
   bool screenInited;
   bool standAloneApp;

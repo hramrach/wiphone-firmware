@@ -1,37 +1,34 @@
-0.8.29rc2:
-    Major:
-	- Issue #64 (firmware fix for RC car.) Fixed.
-	- Issue #95 (Added $ sign and other symbol to "*" key. Now "*" key support these symbols .,!?@$/+-=%^ _:;'*#) Partially Fixed.
-	- Issue #69 (Call is not permitted when WiFi is not connected) Fixed.
-	- Issue #68 and #69 (Add popups for failed calls: no wifi conn, no sip conn, no sip uri) Fixed.
-	- Fixed WiFiClient (tcp) connect call blocks the GUI, so it is fixed by putting the connect timeout back.
-	- Fixed Reboot or crash problem on being not able to connect with tcp to the primary SIP server. Absence of virtual destructor of the base class Connection was casuing this crash.
-	- Issue #38 (Keep calling when hang up before answer. Cannot hang up when the call is already terminated.) Fixed.
-	- Issue #109 (ensureIpConnection() should not block.) Fixed
-	- Issue #79 (UDP_SIP - TCP_SIP switch at run time by using a ChoiceWidget) Fixed.
-	- Issue #96 (WiPhone keeps vibrating when trying to reject received call using End Call button.) Fixed 
+0.8.30:
     Minor:
-	- Issue #11 ("sip:" in Address book) Fixed.
-	- Fixed Menu responds with difficulties while WiPhone tries to reconnect to a SIP server. It waits 10 s before reconnect again.
+    - calling now defaults to the ear speaker instead of the loudspeaker, and volume can be controlled during a call by pressing up/down arrows
+    - brightness correctly restored on boot
+    - manage SIP better when wifi disconnects or SIP server becomes inactive\
+    
 
-
-0.8.29rc1:
+0.8.29:
     Major:
-    - Issue #79 added UDP_SIP feature by switchable with config.h at compile time 
+    - added UDP SIP. currently only selectable at compile time (in config.h). (Issue #79)
+    Minor:
+	- RC car directions (Issue #64).
+	- Added $ sign and other symbols to "*" key. Now "*" key supports these symbols: .,!?@$/+-=%^ _:;'*#) (Issue #95)
+	- Calling is not permitted when WiFi is not connected (Issue #69)
+	- Add popups for failed calls: no wifi conn, no sip conn, no sip uri (Issue #68 and #69)
+	- Fixed WiFiClient (tcp) connect call blocks the GUI. restored the connect timeout
+	- Fixed crash when unable to connect with tcp to the primary SIP server. Absence of virtual destructor of the base class Connection was causing this crash.
+	- Allow complete call termination even when the caller hangs up before callee responds. (Issue #38)
+	- UI doesn't freeze (ensureIpConnection() should not block.) (Issue #109)
+	- Add widget to allow switching between TCP and UDP SIP at run time. (Issue #79)
+	- Disable vibration after rejecting a received call using the End Call button. (Issue #96)
+	- Issue #11 ("sip:" in address book) Fixed.
+	- Fixed menu unreponsive while WiPhone tries to reconnect to a SIP server. 10s wait before attempting reconnect.
     - Fixed: WiPhone crash when there is multiple multimedia descriptors 'm' in SDP message
-    - fixed detecting if other party is disconnected from internet connection. Now if other party has disconnected then wiphone
-	  can detect it and destroy the dialog, hang the call
-    - Fixed SIP Registering after WIFI is disconnected and reconnected again
-    - Fixed crash on sending invite for a not registered callee
-    - Issue #68 (WiPhone restarts when tries to call a contact without sip info (Exception un-handled)) Fixed.
-    - Issue #69 (Hanging up call is not working when WiPhone is not connected to WiFi.) Fixed.
-    - Issue #14 (While making a failed call, the firmware hangs and ends in reboot: When I make a failed call, the firmware hangs 
-	   and ends in reboot.) Fixed.
-	- Issue #66 (Removed old board definitions, added #define for pogo pins and moved #define LORA_MESSAGING to Hardware.h) Partially Fixed.
-	
-    Minor:
-	- Fixed SIP logs are printed as character by character so they cannot be read easily.
-
+    - Detect if the other party is disconnects, then destroy the dialog and terminate the call
+    - Improve SIP Registering when WIFI is disconnected and reconnected
+    - Fixed crash on sending invite for an unregistered callee
+    - Handle error when trying to call a contact without sip info (Issue #68)
+    - Allow hang up even when not connected to WiFi. (Issue #69)
+	- Removed old board definitions, added #define for pogo pins and moved #define LORA_MESSAGING to Hardware.h. Partially Fixed. (Issue #66)
+	- Print SIP logs correctly, not one character per line.
 
 0.8.28:
     Major:
@@ -447,7 +444,7 @@ Future:
 	Minor:
 	- correct LCD SPI speed, fixed all warnings, SDP session ID, dynamics handling in TinySIP, little refactoring 
 
-# Copyright © 2019, 2020, 2021 HackEDA, Inc.
+# Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 
 # Licensed under the WiPhone Public License v.1.0 (the "License"); you
 # may not use this file except in compliance with the License. You may

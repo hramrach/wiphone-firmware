@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -576,8 +576,8 @@ public:
   // Timings
   static const uint32_t PING_PERIOD_MS = 58761u;        // 58.8 s     // TODO: use random, according to Page 20 of RFC 5626
   static const uint32_t PING_TIMEOUT_MS = 10000u;       // 10s; RFC 5626: "If a pong is not received within 10 seconds after sending a ping .. / .. then the client MUST treat the flow as / failed."
-  static const uint32_t REGISTER_PERIOD_MS = 165404;    // 3.29 m     // TODO: do registration retries (every minute if failed)
-  static const uint32_t REGISTER_EXPIRATION_S = 900;    // 15 min (in seconds)
+  static const uint32_t REGISTER_PERIOD_MS = 60000;   //modified to one minute // 3.29 m     // TODO: do registration retries (every minute if failed)
+  static const uint32_t REGISTER_EXPIRATION_S = 60;    //modified to one minute // 15 min (in seconds)
   static const uint32_t STALE_CONNECTION_MS = 10000;    // 10 seconds
   static const uint32_t T1_MS = 500u;                   // 500 ms; RFC 3261, Section 17: "The default value for T1 is 500 ms"
 

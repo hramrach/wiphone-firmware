@@ -1,5 +1,5 @@
 /*
-Copyright © 2019, 2020, 2021 HackEDA, Inc.
+Copyright © 2019, 2020, 2021, 2022 HackEDA, Inc.
 Licensed under the WiPhone Public License v.1.0 (the "License"); you
 may not use this file except in compliance with the License. You may
 obtain a copy of the License at
@@ -121,7 +121,7 @@ IPAddress resolveDomain(const char* hostName) {
 
 // ===================================================== WIFI STATE =====================================================
 
-Networks::Networks() : ini(filename) {
+Networks::Networks() : ini(filename), _userDisabled(false) {
   prefSsidDyn = NULL;
   wifiSsidDyn = NULL;
   wifiPassDyn = NULL;
@@ -211,6 +211,16 @@ void Networks::loadPreferred() {
       // Preferred network found
       log_d("preferred network = %s", ini[i]["s"]);
       prefSsidDyn = strdup(ini[i]["s"]);
+      const char *disabled = ini[i]["disabled"];
+      log_d("loadPreferred: 0x%x", disabled);
+      if (disabled != NULL) {
+        log_d("loadPreferred is: %s", disabled);
+        if (strcmp(disabled, "true") == 0) {
+          _userDisabled = true;
+        } else {
+          _userDisabled = false;
+        }
+      }
     }
   }
 }
