@@ -139,7 +139,7 @@ void Audio::report() {
 
 bool Audio::start() {
   bool succ = true;
-
+  
   // Turn on the audio codec IC
   log_v("turning ON audio codec");
   // TODO: feed result into succ
@@ -177,6 +177,10 @@ void Audio::setHeadphones(bool plugged) {
       this->codecReconfig();
     }
   }
+}
+
+bool Audio::getHeadphones(void) {
+  return this->headphones;
 }
 
 void Audio::chooseSpeaker(bool loudspeaker) {
@@ -482,7 +486,7 @@ ret:
 bool Audio::playRingtone(fs::FS *fs) {
   this->ceasePlayback();
   this->playback = Playback::LocalPcm;
-  this-setDataChannels(1);
+  this->setDataChannels(1);
   this->setBitsPerSample(16);
   this->setSampleRate(8000);
   this->setMonoOutput(true);
@@ -604,12 +608,12 @@ void Audio::loop() {
             // Create RTP packet
 
             RTPacketHeader *rtpHeader = rtpSend.generateHeader(bytes);
-            
+
             // Send RTP packet
-            rtp.beginPacket(rtpRemoteIP, rtpRemotePort);            
+            rtp.beginPacket(rtpRemoteIP, rtpRemotePort);
             rtp.write((uint8_t*)rtpHeader, sizeof(RTPacketHeader));
             rtp.write(this->micEnc, bytes);         // TODO: this unnecesarily (and rather slowly) copies the buffer
-            
+
             // TODO: leave 12 bytes in the head of micEnc free for the RTP header, implement and use udp.writeFast()
             if (!rtp.endPacket()) {
               this->packetsSendingFailed++;
@@ -746,20 +750,20 @@ void Audio::loop() {
           if (rtp.remotePort() == rtpRemotePort || !rtpRemotePort) {    // ensuring that the audio comes from the right port; TODO: ensure also that it comes from the right IP
             // Parse RTP packet
             //uint8_t payloadType = rtpRecv.decodeHeader(playEnc);
-            
+
             rtpRecv.setHeader(playEnc);
             uint8_t payloadType = rtpRecv.getPayloadType();
-            
+
             if (payloadType == rtpPayloadType) {
               // Did packets arrive in correct sequence?
               bool inSeq = false;
 
-              
+
               uint16_t seqDiff = (rtpRecv.getSequenceNumber() >= this->lastSequenceNum) ?
                                  rtpRecv.getSequenceNumber() - this->lastSequenceNum :
                                  0xffffu - this->lastSequenceNum + rtpRecv.getSequenceNumber();
 
-                                 
+
 
 
               /*
@@ -772,7 +776,7 @@ void Audio::loop() {
                 this->firstPacket = false;
                 log_i("Sound source (SSRC): %u", rtpRecv.getSSRC());
               }
-              
+
               if (seqDiff > 0 && seqDiff <= 1000) {   // not more than 20 seconds apart (20ms packet)
                 // Packet in order (maybe some packets missed)
                 inSeq = true;

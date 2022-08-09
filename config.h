@@ -17,18 +17,21 @@ governing permissions and limitations under the License.
 
 #define WIPHONE_PRODUCTION          // configure code for production, not development and testing
 
+//#define TEST_DB_PINS                // this requires USER_SERIAL to be not defined, or not used.
+// later need to only configure the daughterboard UART when we are actually using it, and disable it when not using
+
 #ifndef WIPHONE_PRODUCTION
 //#define BATTERY_BLINKING_OFF        // turn off battery blinking while charging (useful in debugging)
-//#define DIAGNOSTICS_ONLY            // limit the UI to the Diagnostics screen
+#define DIAGNOSTICS_ONLY            // limit the UI to the Diagnostics screen
 //#define STEAL_THE_USER_BUTTONS      // this will switch between 2 different sets of definitions for the user button functions
 #endif
 
-#define FIRMWARE_VERSION "0.8.27"
+#define FIRMWARE_VERSION "0.8.28"
 
 #define BUILD_GAMES
 
 #define IF_LOG(level)                       if (ARDUHAL_LOG_LEVEL >= ESP_LOG_ ## level || LOG_LOCAL_LEVEL >= ESP_LOG_ ## level)
-#define LOG_MEM_STATUS log_i("Free Memory: %d\r\n", ESP.getFreeHeap())
+#define LOG_MEM_STATUS printf("Free Memory: %d\r\n", ESP.getFreeHeap())
 
 // hopefully you can find this instead of spending 45 minutes (for the second time) figuring out how to set the log level:
 // In the Arduino IDE, choose from the dropdown located at: Tools>Core Debug Level

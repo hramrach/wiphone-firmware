@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Copyright © 2019, 2020, 2021 HackEDA, Inc.
 
 # Licensed under the WiPhone Public License v.1.0 (the "License"); you
@@ -43,9 +46,12 @@ for line in lines:
         r = (p & int('0b1111100000000000', 2)) >> 11
         g = (p & int('0b0000011111100000', 2)) >> 5
         b = p & int('0b0000000000011111', 2)
+
+        # doesn't work in python 3
         r = (r*256)/32
         g = (g*256)/64
         b = (b*256)/32
+
         p = (b << 16) + (g << 8) + r
         pixels.append(p)
 

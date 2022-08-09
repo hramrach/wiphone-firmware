@@ -110,6 +110,7 @@ public:
   void setVolumes(int8_t speakerVol, int8_t headphonesVol, int8_t loudspeakerVol);
   void getVolumes(int8_t &speakerVol, int8_t &headphonesVol, int8_t &loudspeakerVol);
   void setHeadphones(bool plugged);
+  bool getHeadphones(void);
   void chooseSpeaker(bool loudspeaker);
   bool isLoudspeaker() {
     return this->loudspeaker;

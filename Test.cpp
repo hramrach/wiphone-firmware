@@ -17,6 +17,7 @@ governing permissions and limitations under the License.
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_wifi.h"
+#include <stdio.h>
 
 #define TEST_BLOCKS_SD                4           // or 2048 for deeper test
 #define TEST_BLOCKS_SPIFFS            4
@@ -35,29 +36,15 @@ double taylor_pi(int n) {
 }
 
 void print_system_info() {
-  Serial.print("ESP32 SDK: ");
-  Serial.println(ESP.getSdkVersion());
-  Serial.print("ESP32 CPU FREQ: ");
-  Serial.print(getCpuFrequencyMhz());
-  Serial.println("MHz");
-  Serial.print("ESP32 APB FREQ: ");
-  Serial.print(getApbFrequency() / 1000000.0, 1);
-  Serial.println("MHz");
-  Serial.print("ESP32 FLASH SIZE: ");
-  Serial.print(ESP.getFlashChipSize() / (1024.0 * 1024), 2);
-  Serial.println("MB");
-  Serial.print("ESP32 RAM SIZE: ");
-  Serial.print(ESP.getHeapSize() / 1024.0, 2);
-  Serial.println("KB");
-  Serial.print("ESP32 FREE RAM: ");
-  Serial.print(ESP.getFreeHeap() / 1024.0, 2);
-  Serial.println("KB");
-  Serial.print("ESP32 MAX RAM ALLOC: ");
-  Serial.print(ESP.getMaxAllocHeap() / 1024.0, 2);
-  Serial.println("KB");
-  Serial.print("ESP32 FREE PSRAM: ");
-  Serial.print(ESP.getFreePsram() / 1024.0, 2);
-  Serial.println("KB");
+  printf("System Info\r\n");
+  printf(" - ESP32 SDK: %s\r\n", ESP.getSdkVersion());
+  printf(" - CPU FREQ: %uMHz\r\n", getCpuFrequencyMhz());
+  printf(" - APB FREQ: %0.1fMHz\r\n", getApbFrequency() / 1000000.0);
+  printf(" - FLASH SIZE: %0.2fMB\r\n", ESP.getFlashChipSize() / (1024.0 * 1024));
+  printf(" - RAM SIZE: %0.2fKB\r\n", ESP.getHeapSize() / 1024.0);
+  printf(" - FREE RAM: %0.2fKB\r\n", ESP.getFreeHeap() / 1024.0);
+  printf(" - MAX RAM ALLOC: %0.2fKB\r\n", ESP.getMaxAllocHeap() / 1024.0);
+  printf(" - FREE PSRAM: %0.2fKB\r\n", ESP.getFreePsram() / 1024.0);
   // print uptime
 
   //size_t free_heap = esp_get_free_heap_size();
@@ -69,7 +56,7 @@ void print_system_info() {
   //log_d("Free  8bit-capable memory: %d", free_8bit);
   //log_d("Free 32bit-capable memory: %d", free_32bit);
 
-  //log_d("Task Name\tStatus\tPrio\tHWM\tTask\tAffinity\n");
+  //log_d("Task Name - Status - Prio - HWM - Task - Affinity\n");
   //char stats_buffer[1024];
   //vTaskList(stats_buffer);
   //log_d("%s", stats_buffer);
@@ -80,22 +67,24 @@ void print_system_info() {
 }
 
 void print_memory(void) {
-  log_d("Memory: \r\n\ttotal:%d, internal:%d, spram:%d, Dram:%d",
-        esp_get_free_heap_size(),
-        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT),
-        heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
-        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  printf("Memory Check\r\n");
+  printf(" - Total: %0.2fKB\r\n - Internal: %0.2fKB\r\n - SPI RAM: %0.2fKB\r\n - DRAM: %0.2fKB\r\n",
+         esp_get_free_heap_size() / 1024.0,
+         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT) / 1024.0,
+         heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) / 1024.0,
+         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)) / 1024.0;
 }
 
 void test_cpu() {
+  printf("CPU test\r\n");
   for (int i=14; i<15; i++) {
     int time = millis();
     double pi = taylor_pi(exp(i));
-    log_d("%.11f %d %.1fs", pi, (int)exp(i), (millis()-time)/1000.);
+    printf(" - %.11f %d %.1fs\r\n", pi, (int)exp(i), (millis()-time)/1000.);
   }
 }
 
-void test_memory() {
+bool test_memory() {
   // Linear array expansion memory test
   bool success = true;
   LinearArray<char, LA_INTERNAL_RAM> arr;
@@ -105,20 +94,20 @@ void test_memory() {
     arr[arr.size() - 1] = '\0';
     if (arr.size() == 32768 || arr.size() == 2097152) {
       uint32_t hash = hash_murmur(&arr[0]);
-      Serial.printf("Hash(\"az...aza\") = 0x%08x (%d chars)\n", hash, arr.size() - 1);
+      //printf(" - Hash(\"az...aza\") = 0x%08x (%d chars)\r\n", hash, arr.size() - 1);
       if (hash != 0x68e52bd8 && hash != 0xd94dfa9a) {
         success = false;
       }
     }
     arr[arr.size() - 1] = 'z';
   } while (arr.extend(&arr[0], arr.size()));
-  Serial.print("MEMORY TEST: ");
-  Serial.println(success ? "PASSED" : "FAILED");
+  printf("Memory Test: %s\r\n", success ? "Passed" : "Failed");
+  return success;
 }
 
 void test_ring_buffer() {
-  log_d("RING BUFFER TEST");
-  log_d("================");
+  printf("RING BUFFER TEST\r\n");
+  printf("================\r\n");
 
   RingBuffer<char> ring(5);
   char str[ring.capacity()];
@@ -130,7 +119,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "a") && !ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 2: ab
@@ -138,7 +127,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "ab") && !ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 3: abcd
@@ -147,7 +136,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "abcd") && !ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 4: abcde
@@ -155,7 +144,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "abcde") && ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 5: abcdeZ
@@ -163,7 +152,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "abcde") && ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 6: bcdeZ
@@ -172,7 +161,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "bcdeZ") && ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 7: ZYX
@@ -185,7 +174,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "ZYX") && !ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 8: YX
@@ -193,7 +182,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "YX") && !ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 9: YXab
@@ -202,7 +191,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "YXab") && !ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 10: cdXab
@@ -212,7 +201,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "Xabcd") && ring.full() && !ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 11: ""
@@ -224,7 +213,7 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "") && !ring.full() && ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
   // Test 12: ""
@@ -233,131 +222,131 @@ void test_ring_buffer() {
   ring.getCopy(str);
   dyn = ring.getCopy();
   correct = !strcmp(dyn, str) && !strcmp(str, "") && !ring.full() && ring.empty();
-  log_d("%4s: %s", correct ? "OK" : "FAIL", str);
+  printf("%4s: %s\r\n", correct ? "OK" : "FAIL", str);
   free(dyn);
 
-  log_d("================");
+  printf("================\r\n");
 }
 
 
 // # # # # # # # # # # # # # # # # # # # # # # # # # # # #  TEST FILESYSTEMS  # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 void listDir(fs::FS &fs, const char * dirname, uint8_t levels) {
-  Serial.printf("Listing directory: %s\r\n", dirname);
+  log_d("Listing directory: %s\r\n", dirname);
 
   File root = fs.open(dirname);
   if(!root) {
-    Serial.println("Failed to open directory");
+    printf("Failed to open directory\r\n");
     return;
   }
   if(!root.isDirectory()) {
-    Serial.println("Not a directory");
+    printf("Not a directory\r\n");
     return;
   }
 
   File file = root.openNextFile();
   while(file) {
     if(file.isDirectory()) {
-      Serial.print("  DIR : ");
-      Serial.println(file.name());
+      printf("  DIR : ");
+      printf("%s\r\n", file.name());
       if(levels) {
         listDir(fs, file.name(), levels -1);
       }
     } else {
-      Serial.print("  FILE: ");
-      Serial.print(file.name());
-      Serial.print("  SIZE: ");
-      Serial.println(file.size());
+      printf("  FILE: ");
+      printf(file.name());
+      printf("  SIZE: ");
+      printf("%lukB\r\n", file.size() / 1024);
     }
     file = root.openNextFile();
   }
 }
 
 bool createDir(fs::FS &fs, const char * path) {
-  Serial.printf("Creating Dir: %s\r\n", path);
+  log_d("Creating Dir: %s\r\n", path);
   bool result;
   if ((result = fs.mkdir(path))) {
-    Serial.println("Dir created");
+    printf("Dir created\r\n");
   } else {
-    Serial.println("mkdir FAILED");
+    printf("mkdir FAILED\r\n");
   }
   return result;
 }
 
 bool removeDir(fs::FS &fs, const char * path) {
-  Serial.printf("Removing Dir: %s\r\n", path);
+  log_d("Removing Dir: %s\r\n", path);
   bool result;
   if ((result = fs.rmdir(path))) {
-    Serial.println("Dir removed");
+    printf("Dir removed\r\n");
   } else {
-    Serial.println("rmdir FAILED");
+    printf("rmdir FAILED\r\n");
   }
   return result;
 }
 
 void readFile(fs::FS &fs, const char * path) {
-  Serial.printf("Reading file: %s\r\n", path);
+  log_d("Reading file: %s\r\n", path);
 
   File file = fs.open(path);
   if(!file) {
-    Serial.println("Failed to open file for reading");
+    printf("Failed to open file for reading\r\n");
     return;
   }
 
-  Serial.print("Read from file: ");
+  printf("Read from file: \r\n");
   while(file.available()) {
-    Serial.write(file.read());
+    printf("%c", file.read());
   }
   file.close();
 }
 
 void writeFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Writing file: %s\r\n", path);
+  log_d("Writing file: %s\r\n", path);
 
   File file = fs.open(path, FILE_WRITE);
   if(!file) {
-    Serial.println("Failed to open file for writing");
+    printf("Failed to open file for writing\r\n");
     return;
   }
   if(file.print(message)) {
-    Serial.println("File written");
+    printf("File written\r\n");
   } else {
-    Serial.println("Write FAILED");
+    printf("Write FAILED\r\n");
   }
   file.close();
 }
 
 void appendFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Appending to file: %s\r\n", path);
+  log_d("Appending to file: %s\r\n", path);
 
   File file = fs.open(path, FILE_APPEND);
   if(!file) {
-    Serial.println("Failed to open file for appending");
+    printf("Failed to open file for appending\r\n");
     return;
   }
   if(file.print(message)) {
-    Serial.println("Message appended");
+    printf("Message appended\r\n");
   } else {
-    Serial.println("Append FAILED");
+    printf("Append FAILED\r\n");
   }
   file.close();
 }
 
 void renameFile(fs::FS &fs, const char * path1, const char * path2) {
-  Serial.printf("Renaming file %s to %s\r\n", path1, path2);
+  log_d("Renaming file %s to %s\r\n", path1, path2);
   if (fs.rename(path1, path2)) {
-    Serial.println("File renamed");
+    printf("File renamed\r\n");
   } else {
-    Serial.println("Rename FAILED");
+    printf("Rename FAILED\r\n");
   }
 }
 
 void deleteFile(fs::FS &fs, const char * path) {
-  Serial.printf("Deleting file: %s\r\n", path);
+  log_d("Deleting file: %s\r\n", path);
   if(fs.remove(path)) {
-    Serial.println("File deleted");
+    printf("File deleted\r\n");
   } else {
-    Serial.println("Delete FAILED");
+    printf("Delete FAILED\r\n");
   }
 }
 
@@ -380,16 +369,16 @@ void testFileIO(fs::FS &fs, const char *path, int writeBlocks) {
       len -= toRead;
     }
     end = millis() - start;
-    Serial.printf("%u bytes read for %u ms\r\n", flen, end);
+    printf("%u bytes read for %u ms\r\n", flen, end);
     file.close();
   } else {
-    Serial.println("Failed to open file for reading");
+    printf("Failed to open file for reading\r\n");
   }
 
 
   file = fs.open(path, FILE_WRITE);
   if (!file) {
-    Serial.println("Failed to open file for writing");
+    printf("Failed to open file for writing\r\n");
     return;
   }
 
@@ -399,7 +388,7 @@ void testFileIO(fs::FS &fs, const char *path, int writeBlocks) {
     file.write(buf, 512);
   }
   end = millis() - start;
-  Serial.printf("%u bytes written for %u ms\r\n", writeBlocks * 512, end);
+  printf("%u bytes written for %u ms\r\n", writeBlocks * 512, end);
   file.close();
 }
 
@@ -421,52 +410,105 @@ bool testFilesystem(fs::FS &fs, int writeBlocks) {
   return true;    // TODO
 }
 
+bool test_sd_card(void) {
+  uint8_t cardType = SD.cardType();
+  if (cardType == CARD_NONE) {
+    SD.end();
+    if (!SD.begin(SD_CARD_CS_PIN, SPI, SD_CARD_FREQUENCY)) {
+      printf("SD: card mount failed\r\n");
+      return false;
+    }
+  } else {
+    cardType = SD.cardType();
+  }
+  //printf("SD: card mounted\r\n");
+  if (cardType == CARD_NONE) {
+    return false;
+  }
+  if (!(cardType == CARD_MMC || cardType == CARD_SD || cardType == CARD_SDHC)) {
+    printf("SD: unrecognised card type\r\n");
+    return false;
+  }
+
+  //printf("SD: card OK\r\n");
+  if (!(SD.remove("/test.txt"))) {
+    printf("SD: cannot delete test file\r\n");
+    //return false;
+  }
+  File file = SD.open("/test.txt", FILE_WRITE);
+  if(!file) {
+    printf("SD: cannot open test file for writing\r\n");
+    return false;
+  }
+
+  char buf[4];
+
+  file.print("HI!");
+  file.close();
+  //file.seek(0);
+  // seeking does not work, need to close and re-open for some reason
+  file = SD.open("/test.txt");
+  int i = 0;
+  while(file.available()) {
+    char c = file.read();
+    buf[i] = c;
+    i++;
+  }
+  buf[i] = 0;
+
+  if (strcmp(buf, "HI!") != 0) {
+    printf("SD: cannot read back same data\r\n");
+    return false;
+  }
+
+  return true;
+}
+
 void test_sd_card(int writeBlocks) {
-  Serial.println("-------------------- SD card test --------------------");
+  printf("-------------------- SD card test --------------------\r\n");
 
   uint8_t cardType = SD.cardType();
 
   if (cardType == CARD_NONE) {
-    Serial.println("- error: no SD card attached");
+    printf("- error: no SD card attached");
     goto remount;
   } else {
-    Serial.print("- SD card type: ");
+    printf("- SD card type: ");
     if (cardType == CARD_MMC) {
-      Serial.println("MMC");
+      printf("MMC\r\n");
     } else if (cardType == CARD_SD) {
-      Serial.println("SDSC");
+      printf("SDSC\r\n");
     } else if (cardType == CARD_SDHC) {
-      Serial.println("SDHC");
+      printf("SDHC\r\n");
     } else {
-      Serial.println("UNKNOWN");
+      printf("UNKNOWN\r\n");
     }
 
     uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-    Serial.printf("- SD card size: %lluMB\r\n", cardSize);
+    printf("- SD card size: %lluMB\r\n", cardSize);
+    printf("- total space: %lluMB\r\n", SD.totalBytes() / (1024 * 1024));
+    printf("- used space: %lluMB\r\n", SD.usedBytes() / (1024 * 1024));
 
     if (!testFilesystem(SD, TEST_BLOCKS_SD)) {
       goto remount;
     }
-
-    Serial.printf("- total space: %lluMB\r\n", SD.totalBytes() / (1024 * 1024));
-    Serial.printf("- used space: %lluMB\r\n", SD.usedBytes() / (1024 * 1024));
   }
-  Serial.println("-------------------- ------------ --------------------");
+  printf("-------------------- ------------ --------------------\r\n");
 
   return;
 
 remount:
   SD.end();
   if (!SD.begin(SD_CARD_CS_PIN, SPI, SD_CARD_FREQUENCY)) {
-    Serial.println("Card remount FAILED");
+    printf("Card remount FAILED\r\n");
   } else {
-    Serial.println("Card remounted!");
+    printf("Card remounted!\r\n");
   }
   return;
 }
 
 bool test_internal_flash(int writeBlocks) {
-  Serial.println("-------------------- Internal flash test --------------------");
+  printf("-------------------- Internal flash test --------------------\r\n");
   bool res = testFilesystem(SPIFFS, TEST_BLOCKS_SPIFFS);
 
   {
@@ -502,7 +544,7 @@ bool test_internal_flash(int writeBlocks) {
     ini.store();
   }
 
-  Serial.println("-------------------- ------------ --------------------");
+  printf("-------------------- ------------ --------------------\r\n");
 
   return res;
 }
@@ -695,51 +737,51 @@ void tinySipUnitTest() {
  *     retrieve WiFi information for device certification.
  */
 void test_wifi_info() {
+  printf("WiFi Info\r\n");
   // Development: get WiFi power
   int8_t power;
-  log_d("WiFi info:");
   if (esp_wifi_get_max_tx_power(&power) == ESP_OK) {
-    log_d("- max. transmit power: %d", power);
+    printf(" - max. transmit power: %d\r\n", power);
   } else {
-    log_d("- error: max. power not retireved");
+    printf(" - error: max. power not retrieved\r\n");
   }
   wifi_country_t country;
   if (esp_wifi_get_country(&country) == ESP_OK) {
-    log_d("- country.cc: %s", country.cc);
-    log_d("- country.nchan: %d", country.nchan);
-    log_d("- country.schan: %d", country.schan);
+    printf(" - country.cc: %s\r\n", country.cc);
+    printf(" - country.nchan: %d\r\n", country.nchan);
+    printf(" - country.schan: %d\r\n", country.schan);
   } else {
-    log_d("- error: wifi country not retrieved");
+    printf(" - error: wifi country not retrieved");
   }
   uint8_t bitmap;
   if (esp_wifi_get_protocol(WIFI_IF_STA, &bitmap) == ESP_OK) {
-    log_d("- WIFI_PROTOCOL_11B = %d", bitmap & WIFI_PROTOCOL_11B);
-    log_d("- WIFI_PROTOCOL_11G = %d", bitmap & WIFI_PROTOCOL_11G);
-    log_d("- WIFI_PROTOCOL_11N = %d", bitmap & WIFI_PROTOCOL_11N);
+    printf(" - WIFI_PROTOCOL_11B = %d\r\n", bitmap & WIFI_PROTOCOL_11B);
+    printf(" - WIFI_PROTOCOL_11G = %d\r\n", bitmap & WIFI_PROTOCOL_11G);
+    printf(" - WIFI_PROTOCOL_11N = %d\r\n", bitmap & WIFI_PROTOCOL_11N);
   } else {
-    log_d("- error: wifi protocol not retrieved");
+    printf(" - error: wifi protocol not retrieved\r\n");
   }
   wifi_bandwidth_t wifi_bandwidth;
   if (esp_wifi_get_bandwidth(WIFI_IF_STA, &wifi_bandwidth) == ESP_OK) {
-    log_d("- wifi bandwidth: %s", (wifi_bandwidth == WIFI_BW_HT20) ? "20" : (wifi_bandwidth == WIFI_BW_HT40) ? "40" : "unk");
+    printf(" - wifi bandwidth: %s\r\n", (wifi_bandwidth == WIFI_BW_HT20) ? "20" : (wifi_bandwidth == WIFI_BW_HT40) ? "40" : "unk");
   } else {
-    log_d("- error: wifi bandwidth not retrieved");
+    printf(" - error: wifi bandwidth not retrieved\r\n");
   }
   wifi_sta_list_t sta_list;
   if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
-    log_d("- phy_11b: %d", sta_list.sta[0].phy_11b);
-    log_d("- phy_11g: %d", sta_list.sta[0].phy_11g);
-    log_d("- phy_11n: %d", sta_list.sta[0].phy_11n);
-    log_d("- phy_lr:  %d", sta_list.sta[0].phy_lr);
+    printf(" - phy_11b: %d\r\n", sta_list.sta[0].phy_11b);
+    printf(" - phy_11g: %d\r\n", sta_list.sta[0].phy_11g);
+    printf(" - phy_11n: %d\r\n", sta_list.sta[0].phy_11n);
+    printf(" - phy_lr:  %d\r\n", sta_list.sta[0].phy_lr);
   } else {
-    log_d("- error: AP sta_list not retrieved");
+    printf(" - error: AP sta_list not retrieved\r\n");
   }
 }
 
 // # # # # # # # # # # # # # # # # # # # # # # # # # # # #  HTTP CLIENT  # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 void test_http(void *pvParam) {
-  const char host[] = "sip2sip.info";      // works with address
+  const char host[] = "httpbin.org/get";
 
   // Show resolved IP address just for the sake of it
   IPAddress ipAddr = resolveDomain(host);
@@ -748,15 +790,15 @@ void test_http(void *pvParam) {
   }
 
   uint32_t cnt = 0;
-  while(1) {
+  while(cnt < 4) {
     WiFiClient tcp;
-    Serial.printf("HTTP: %d\r\n", ++cnt);
+    printf("HTTP: %d\r\n", ++cnt);
     if (tcp.connect(host, 80)) {
-      Serial.printf("On the Web! Socket: %d\r\n", tcp.fd());
+      printf("On the Web! Socket: %d\r\n", tcp.fd());
 
       // HTTP header
       tcp.print("GET / HTTP/1.1\r\n");
-      tcp.print("Host: sip2sip.info\r\n");
+      tcp.print("Host: httpbin.org/get\r\n");
       tcp.print("User-Agent: tinySIP\r\n");
       tcp.print("Accept: text/html\r\n");
       tcp.print("\r\n");
@@ -780,7 +822,7 @@ void test_http(void *pvParam) {
               char buff2[1024];
               strncpy(buff2, (const char*)buff, (size_t)(p - (char *)&buff));
               buff2[(size_t)(p - (char *)&buff)] = '\0';
-              Serial.printf("Line:\r\n%s\r\nFull:\r\n%s\r\n", buff2, (const char *) buff);
+              printf("Line:\r\n%s\r\nFull:\r\n%s\r\n", buff2, (const char *) buff);
             } else {
               Serial.println("No CRNL found");
             }
@@ -802,7 +844,7 @@ void start_http_client() {
   if (wifiState.isConnected()) {
     xTaskCreate(&test_http, "test_http", 8192, NULL, tskIDLE_PRIORITY, NULL);
   } else {
-    Serial.println("WiFi not connected");
+    printf("WiFi not connected\r\n");
   }
 }
 

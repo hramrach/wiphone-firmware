@@ -280,6 +280,7 @@ public:
   bool codecInited = false;
   bool scannerInited = false;
   bool extenderInited = false;
+  bool booted = false;
 
   // Keyboard lock
   bool locking = true;                // Is the keyboard locking is ON?
@@ -680,8 +681,8 @@ protected:
 class HeaderWidget : public NonFocusableWidget {
 public:
   HeaderWidget(const char* s, ControlState& state)
-    : NonFocusableWidget(0, 0, TFT_WIDTH, THEME_HEADER_SIZE), title(s), controlState(state)
-  {};       // TODO: remove TFT_WIDTH?
+    : NonFocusableWidget(0, 0, TFT_WIDTH, THEME_HEADER_SIZE), title(s), controlState(state) {
+  };       // TODO: remove TFT_WIDTH?
   void setTitle(const char* s) {
     title = s;
   }
@@ -1522,9 +1523,11 @@ protected:
   char filename[100];
 };
 
-class DiagnosticsApp : public WindowedApp, FocusableApp {
+//class DiagnosticsApp : public WindowedApp, FocusableApp {
+class DiagnosticsApp : public WiPhoneApp {
 public:
-  DiagnosticsApp(Audio* audio, LCD& disp, ControlState& state, HeaderWidget* header, FooterWidget* footer);
+  //DiagnosticsApp(Audio* audio, LCD& disp, ControlState& state, HeaderWidget* header, FooterWidget* footer);
+  DiagnosticsApp(Audio* audio, LCD& disp, ControlState& state);
   virtual ~DiagnosticsApp();
   ActionID_t getId() {
     return GUI_APP_DIAGNOSTICS;
@@ -1570,7 +1573,15 @@ protected:
   ButtonWidget* bCodec = NULL;
 
   // - Network
-  ButtonWidget* bbPings[8];
+  ButtonWidget* bbPings[2]; //[8];
+
+  // - Filesystems
+  /*ButtonWidget* testEarSpeaker = NULL;
+  ButtonWidget* testLoudSpeaker = NULL;
+  ButtonWidget* testHeadphone = NULL;*/
+
+  // - Screen
+  int screenStep = 0;
 
   // - Keypad test
   static const int EXIT_CNT = 5;
@@ -1603,14 +1614,19 @@ protected:
   int8_t  nextToPing = 0;
   bool pingedAll = false;
   uint8_t lastUptimeClosing = 99;
+  uint8_t dbCounter = 0;
 
   void updateVoltage();
   void updateUsb();
   void updateIP();
   void updateRSSI();
   void updateScannerAndCodec();
+  void updateDB();
   void updateUptime();
   void updatePing();
+  void updateMic();
+  void toggleSpeaker();
+  bool selfTest();
 };
 
 #ifdef BUILD_GAMES

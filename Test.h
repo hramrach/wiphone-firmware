@@ -35,7 +35,7 @@ governing permissions and limitations under the License.
 void print_system_info();
 void print_memory();
 void test_cpu();
-void test_memory();
+bool test_memory();
 void test_ring_buffer();
 
 void listDir(fs::FS &fs, const char * dirname, uint8_t levels);
@@ -49,6 +49,7 @@ void deleteFile(fs::FS &fs, const char * path);
 
 void testFileIO(fs::FS &fs, const char *path, int writeBlocks);
 bool testFilesystem(fs::FS &fs, int writeBlocks);
+bool test_sd_card(void);
 void test_sd_card(int writeBlocks);
 bool test_internal_flash(int writeBlocks);
 

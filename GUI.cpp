@@ -15,6 +15,7 @@ governing permissions and limitations under the License.
 #include "GUI.h"
 #include "tinySIP.h"
 #include "ota.h"
+#include "Test.h"
 
 // Static images
 #include "src/assets/image.h"
@@ -226,9 +227,9 @@ void GUI::frameToSerial() {
   if (page && page->isSprite()) {
     for (int y=0; y<page->height(); y++) {
       for (int x=0; x<page->width(); x++) {
-        Serial.printf(" 0x%04x", page->readPixel(x,y));
+        printf(" 0x%04x", page->readPixel(x,y));
       }
-      Serial.printf("\r\n");
+      printf("\r\n");
     }
   }
 }
@@ -1401,7 +1402,8 @@ void GUI::enterApp(ActionID_t app) {
     break;
   case GUI_APP_DIAGNOSTICS:
     // NOTE: `lcd` - this app draws to the physical screen directly
-    runningApp = new DiagnosticsApp(audio, lcd, state, header, footer);
+    //runningApp = new DiagnosticsApp(audio, lcd, state, header, footer);
+    runningApp = new DiagnosticsApp(audio, lcd, state);
     break;
 #ifdef BUILD_GAMES
   case GUI_APP_FIDE_CHESS:
@@ -2010,9 +2012,8 @@ void MyApp::redrawScreen(bool redrawAll) {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  UART passthrough app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 UartPassthroughApp::UartPassthroughApp(LCD& lcd, ControlState& state, HeaderWidget* header, FooterWidget* footer)
-         : WindowedApp(lcd, state, header, footer), FocusableApp(2), screenInited(false), startedSerial(false), 
-         xHandle0(NULL), xHandle1(NULL)
-{
+  : WindowedApp(lcd, state, header, footer), FocusableApp(2), screenInited(false), startedSerial(false),
+    xHandle0(NULL), xHandle1(NULL) {
   clearRect = new RectWidget(0, header->height(), lcd.width(), lcd.height() - header->height() - footer->height(), WP_COLOR_1);
 
   controlState.msAppTimerEventLast = millis();
@@ -2024,7 +2025,7 @@ UartPassthroughApp::UartPassthroughApp(LCD& lcd, ControlState& state, HeaderWidg
 
   baudLabel = new LabelWidget(0, yOff, lcd.width(), 25, "Baud:", WP_ACCENT_1, WP_COLOR_1, fonts[AKROBAT_BOLD_18], LabelWidget::LEFT_TO_RIGHT, 8);
   yOff += baudLabel->height();
-  
+
   baud = new TextInputWidget(0, yOff, lcd.width(), 35, controlState, 100, fonts[AKROBAT_BOLD_20], InputType::AlphaNum, 8);
   yOff += baud->height();
 
@@ -2061,14 +2062,14 @@ UartPassthroughApp::~UartPassthroughApp() {
     vTaskDelete(xHandle1);
     xHandle1 = NULL;
   }
-  
+
   if (startedSerial) {
     uart_driver_delete(UART_NUM_0);
     uart_driver_delete(UART_NUM_1);
 
     startedSerial = false;
   }
-  
+
   const uart_config_t uart_config = {
     .baud_rate = SERIAL_BAUD,
     .data_bits = UART_DATA_8_BITS,
@@ -2078,8 +2079,8 @@ UartPassthroughApp::~UartPassthroughApp() {
   };
 
   int RX_BUF_SIZE =  1024;
-      
-  uart_param_config(UART_NUM_0, &uart_config);                                                                                                                                                                      
+
+  uart_param_config(UART_NUM_0, &uart_config);
   uart_driver_install(UART_NUM_0, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
 }
 
@@ -2107,17 +2108,16 @@ void UartPassthroughApp::redrawScreen(bool redrawAll) {
     ((GUIWidget*) startStop)->redraw(lcd);
     ((GUIWidget*) echo)->redraw(lcd);
     ((GUIWidget*) echoLabel)->redraw(lcd);
-  }
-  else {
+  } else {
     if (baud->isUpdated()) {
       ((GUIWidget*) baud)->redraw(lcd);
     }
     if (startStop->isUpdated()) {
       ((GUIWidget*) startStop)->redraw(lcd);
-    } 
+    }
     if (echo->isUpdated()) {
       ((GUIWidget*) echo)->redraw(lcd);
-    } 
+    }
   }
 
   screenInited = true;
@@ -2126,7 +2126,7 @@ void UartPassthroughApp::redrawScreen(bool redrawAll) {
 appEventResult UartPassthroughApp::processEvent(EventType event) {
   appEventResult res = DO_NOTHING;
   FocusableWidget* focusedWidget = getFocused();
-  
+
   if (LOGIC_BUTTON_OK(event) && focusedWidget == startStop) {
     if (!startedSerial) {
       startedSerial = true;
@@ -2141,31 +2141,30 @@ appEventResult UartPassthroughApp::processEvent(EventType event) {
       };
 
       int RX_BUF_SIZE =  1024;
-      
-      uart_param_config(UART_NUM_0, &uart_config);                                                                                                                                                                      
+
+      uart_param_config(UART_NUM_0, &uart_config);
       uart_driver_install(UART_NUM_0, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
 
       uart_param_config(UART_NUM_1, &uart_config);
-      uart_set_pin(UART_NUM_1, USER_SERIAL_TX, USER_SERIAL_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE); 
+      uart_set_pin(UART_NUM_1, USER_SERIAL_TX, USER_SERIAL_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
       uart_driver_install(UART_NUM_1, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
 
       switch (echo->getValue()) {
-        case 1: // no
-          uart0Thread.rxPort = UART_NUM_0;
-          uart0Thread.txPort = UART_NUM_1;
-          uart1Thread.rxPort = UART_NUM_1;
-          uart1Thread.txPort = UART_NUM_0;
-          xTaskCreate(&UartPassthroughApp::thread, "uart0", 1024, &uart0Thread, tskIDLE_PRIORITY + 1, &xHandle0);
-          xTaskCreate(&UartPassthroughApp::thread, "uart1", 1024, &uart1Thread, tskIDLE_PRIORITY + 1, &xHandle1);
-          break;
-        case 0: // yes
-          uart0Thread.rxPort = UART_NUM_0;
-          uart0Thread.txPort = UART_NUM_0;
-          xTaskCreate(&UartPassthroughApp::thread, "uart0", 1024, &uart0Thread, tskIDLE_PRIORITY + 1, &xHandle0);
-          break;
+      case 1: // no
+        uart0Thread.rxPort = UART_NUM_0;
+        uart0Thread.txPort = UART_NUM_1;
+        uart1Thread.rxPort = UART_NUM_1;
+        uart1Thread.txPort = UART_NUM_0;
+        xTaskCreate(&UartPassthroughApp::thread, "uart0", 1024, &uart0Thread, tskIDLE_PRIORITY + 1, &xHandle0);
+        xTaskCreate(&UartPassthroughApp::thread, "uart1", 1024, &uart1Thread, tskIDLE_PRIORITY + 1, &xHandle1);
+        break;
+      case 0: // yes
+        uart0Thread.rxPort = UART_NUM_0;
+        uart0Thread.txPort = UART_NUM_0;
+        xTaskCreate(&UartPassthroughApp::thread, "uart0", 1024, &uart0Thread, tskIDLE_PRIORITY + 1, &xHandle0);
+        break;
       }
-    }
-    else {
+    } else {
       startedSerial = false;
       ((ButtonWidget*) focusedWidget)->setText("start");
 
@@ -2180,19 +2179,16 @@ appEventResult UartPassthroughApp::processEvent(EventType event) {
       }
     }
 
-    res |= REDRAW_SCREEN; 
-  }
-  else if (event == WIPHONE_KEY_END) { 
-    return EXIT_APP;   
-  }
-  else if (event == WIPHONE_KEY_UP || event == WIPHONE_KEY_DOWN) {
-      nextFocus(event == WIPHONE_KEY_DOWN);
-      res |= REDRAW_SCREEN;
-  }
-  else {
+    res |= REDRAW_SCREEN;
+  } else if (event == WIPHONE_KEY_END) {
+    return EXIT_APP;
+  } else if (event == WIPHONE_KEY_UP || event == WIPHONE_KEY_DOWN) {
+    nextFocus(event == WIPHONE_KEY_DOWN);
+    res |= REDRAW_SCREEN;
+  } else {
     if (focusedWidget != NULL) {
       ((GUIWidget*) focusedWidget)->processEvent(event);
-      res |= REDRAW_SCREEN; 
+      res |= REDRAW_SCREEN;
     }
   }
 
@@ -5786,7 +5782,7 @@ ClockApp::~ClockApp() {
 
 appEventResult ClockApp::processEvent(EventType event) {
   log_d("processEvent ClockApp");
-  LOG_MEM_STATUS;
+  //LOG_MEM_STATUS;
   if (LOGIC_BUTTON_BACK(event) || LOGIC_BUTTON_OK(event) || event==WIPHONE_KEY_DOWN || event==WIPHONE_KEY_UP) {
     return EXIT_APP;
   }
@@ -6360,7 +6356,7 @@ bool CreateMessageApp::isSipAddress(const char* address) {
   if (strncmp(address, "LORA:", 5) == 0) {
     return false;
   }
-  
+
   if (strlen(address) == 6) {
     bool valid = true;
     for (int i = 0; i < strlen(address); ++i) {
@@ -6528,7 +6524,7 @@ appEventResult CreateMessageApp::processEvent(EventType event) {
         fromUri = loraAddress;
 
         if (strncmp(toUri, "LORA:", 5) == 0) {
-          toUri = extractAddress(toUri, MessageType_t::LORA); 
+          toUri = extractAddress(toUri, MessageType_t::LORA);
         }
       }
 
@@ -7113,24 +7109,26 @@ void RecorderApp::redrawScreen(bool redrawAll) {
 // The diagnostcs app draws directly to the screen to avoid issues if the external RAM is not available.
 // If you want to avoid flickering you'll need to only redraw if the element changed.
 
-DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, HeaderWidget* header, FooterWidget* footer)
-  : WindowedApp(lcd, state, header, footer), FocusableApp(8), audio(audio), lastVoltages(3), lastSocs(3) {
+//DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, HeaderWidget* header, FooterWidget* footer)
+//  : WindowedApp(lcd, state, header, footer), FocusableApp(8), audio(audio), lastVoltages(3), lastSocs(3) {
+DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state)
+  : WiPhoneApp(lcd, state), audio(audio), lastVoltages(3), lastSocs(3) {
   lastVoltages.zero();
   lastSocs.zero();
 
-  header->setTitle("Diagnostics");
-  footer->setButtons(NULL, "Back");
+  //header->setTitle("Diagnostics");
+  //footer->setButtons(NULL, "Back");
 
   // Create all the widgets
   const uint16_t spacing = 1;
   uint16_t xOff = spacing;
-  uint16_t yOff = header->height();
+  uint16_t yOff = 15; //header->height();
 
   // Row
   bVersion = new ButtonWidget(xOff, yOff, "ver. " FIRMWARE_VERSION, 0, 30, TFT_BLACK, greyBg, greyBorder);
   this->registerWidget(bVersion);
   xOff += bVersion->width() + spacing;
-  log_d("Firmware Version: %s", FIRMWARE_VERSION);
+  //printf("Firmware Version: %s\r\n", FIRMWARE_VERSION);
 
   bUptime = new ButtonWidget(xOff, yOff, "Up:00d00:00", 0, 30, TFT_BLACK, greyBg, greyBorder);
   this->registerWidget(bUptime);
@@ -7165,17 +7163,17 @@ DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, Head
   this->registerWidget(bAutonomous);
   xOff = spacing;
   yOff += bAutonomous->height() + spacing;
-  log_d("USB State: %s", lastAutonomous ? "Unplugged" : "Connected");
+  //printf("USB State: %s\r\n", lastAutonomous ? "Unplugged" : "Connected");
 
   // Row
   bool inited = controlState.gaugeInited;
-  log_d("Battery Gauge Inited: %s", inited? "yes" : "no");
+  //printf("Battery Gauge Inited: %s\r\n", inited? "yes" : "no");
   bBatteryGauge = new ButtonWidget(xOff, yOff, "Gauge", 0, 30, TFT_BLACK, inited ? greenBg : redBg, inited ? greenBorder : redBorder);
   this->registerWidget(bBatteryGauge);
   xOff += bBatteryGauge->width() + spacing;
 
   inited = controlState.extenderInited;
-  log_d("GPIO Extender Inited: %s", inited? "yes" : "no");
+  //printf("GPIO Extender Inited: %s\r\n", inited? "yes" : "no");
   bGpioExtender = new ButtonWidget(xOff, yOff, "Extender", 0, 30, TFT_BLACK, inited ? greenBg : redBg, inited ? greenBorder : redBorder);
   this->registerWidget(bGpioExtender);
   xOff = spacing;
@@ -7183,19 +7181,19 @@ DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, Head
 
   // Row
   inited = controlState.scannerInited;
-  log_d("Key Scanner Inited: %s", inited? "yes" : "no");
+  //printf("Key Scanner Inited: %s\r\n", inited? "yes" : "no");
   bKeyScanner = new ButtonWidget(xOff, yOff, "Scanner", 0, 30, TFT_BLACK, inited ? greenBg : redBg, inited ? greenBorder : redBorder);
   this->registerWidget(bKeyScanner);
   xOff += bKeyScanner->width() + spacing;
 
   inited = controlState.codecInited;
-  log_d("Audio Codec Inited: %s", inited? "yes" : "no");
+  //printf("Audio Codec Inited: %s\r\n", inited? "yes" : "no");
   bCodec = new ButtonWidget(xOff, yOff, "Codec", 0, 30, TFT_BLACK, inited ? greenBg : redBg, inited ? greenBorder : redBorder);
   this->registerWidget(bCodec);
   xOff += bCodec->width() + spacing;
 
   inited = controlState.psramInited;
-  log_d("PSRAM Inited: %s", inited? "yes" : "no");
+  //printf("PSRAM Inited: %s\r\n", inited? "yes" : "no");
   bSpiRam = new ButtonWidget(xOff, yOff, "PSRAM", 0, 30, TFT_BLACK, inited? greenBg : redBg, inited ? greenBorder : redBorder);
   this->registerWidget(bSpiRam);
   xOff = spacing;
@@ -7205,7 +7203,7 @@ DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, Head
   char buff[25];
   uint8_t mac[6];
   wifiState.getMac(mac);
-  log_d("Chip ID: %02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  //printf("Chip ID: %02X:%02X:%02X:%02X:%02X:%02X\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   snprintf(buff, sizeof(buff), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   bMacAddress = new ButtonWidget(xOff, yOff, buff, 0, 30, TFT_BLACK, greenBg, greenBorder);
   this->registerWidget(bMacAddress);
@@ -7215,7 +7213,7 @@ DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, Head
   // Row
   IPAddress ipAddr = WiFi.localIP();
   lastIpAddr = WiFi.localIP();
-  log_d("IP Address: %d.%d.%d.%d", ipAddr[0], ipAddr[1], ipAddr[2], ipAddr[3]);
+  //printf("IP Address: %d.%d.%d.%d\r\n", ipAddr[0], ipAddr[1], ipAddr[2], ipAddr[3]);
   snprintf(buff, sizeof(buff), "%d.%d.%d.%d", ipAddr[0], ipAddr[1], ipAddr[2], ipAddr[3]);
   bIpAddress = new ButtonWidget(xOff, yOff, "000.000.000.000", 0, 30, TFT_BLACK, (uint32_t) ipAddr ? greenBg : greyBg, (uint32_t) ipAddr ? greenBorder : greyBorder);
   bIpAddress->setText(buff);
@@ -7231,16 +7229,33 @@ DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, Head
 
   // NETWORKS
   xOff = spacing;
-  yOff = header->height();
+  yOff = 15; //header->height();
   for (int i=0; i<sizeof(bbPings)/sizeof(bbPings[0]); i++) {
     bbPings[i] = new ButtonWidget(xOff, yOff, "Pinging...", lcd.width()-spacing, 30, TFT_BLACK, greyBg, greyBorder);
     this->registerWidget(bbPings[i]);
     yOff += bbPings[i]->height() + spacing;
   }
 
+  // FILESYSTEMS
+  // currently the SD card is tested in main
+
+  // AUDIO
+  /*
+  yOff = header->height()+75;
+  testEarSpeaker = new ButtonWidget(1, yOff, "Front", 115, 30, TFT_BLACK, greyBg, greyBorder);
+  testLoudSpeaker = new ButtonWidget(81, yOff, "Back", 115, 30, TFT_BLACK, greyBg, greyBorder);
+  testHeadphone = new ButtonWidget(161, yOff, "Jack", 115, 30, TFT_BLACK, greyBg, greyBorder);
+
+  this->registerWidget(testEarSpeaker);
+  this->registerWidget(testLoudSpeaker);
+  this->registerWidget(testHeadphone);
+  */
+
+  // SCREEN
+
   // KEYPAD
   // - row 1
-  yOff = header->height()+15;
+  yOff = 75; //header->height()+15;
   bbKeys[0] = new ButtonWidget(100, yOff, "U", 40, 30, TFT_BLACK, greyBg, greyBorder);
   yOff += bbKeys[0]->height() + spacing;
 
@@ -7296,13 +7311,13 @@ DiagnosticsApp::DiagnosticsApp(Audio* audio, LCD& lcd, ControlState& state, Head
   this->updateIP();
   this->updateRSSI();
   this->updateScannerAndCodec();
-
   this->changeState(MAIN);
 }
 
 DiagnosticsApp::~DiagnosticsApp() {
-  // all widgets must be registered and are deleted by WiPhoneApp desctructor
+  // all widgets must be registered and are deleted by WiPhoneApp destructor
   audio->shutdown();
+  allDigitalWrite(VIBRO_MOTOR_CONTROL, LOW);
 }
 
 void DiagnosticsApp::updateVoltage() {
@@ -7370,10 +7385,19 @@ void DiagnosticsApp::updateVoltage() {
     }
   }
 
-  // Bonus: SD card presence
-  if (lastSd != (int8_t) controlState.cardPresent) {
-    bool &sd = controlState.cardPresent;
-    log_d("SD card: %s", sd? "present" : "none");
+  // note: the SD card holder in the first batches of boards has a permanantly grounded card detect pin
+  //       those boards will always report a card present
+  //       additionally, this test only checks the detect pin state.
+  //       better to test by using an actual write and read (see test_sd_card() below)
+  //if (lastSd != (int8_t) controlState.cardPresent) {
+  //  bool &sd = controlState.cardPresent;
+  //  log_d("SD card: %s", sd? "present" : "none");
+  //  bCardPresence->setColors(TFT_BLACK, sd ? greenBg : greyBg, sd ? greenBorder : greyBorder);
+  //  lastSd = (int8_t) sd;
+  //}
+
+  if (lastSd != true) {
+    bool sd = test_sd_card();
     bCardPresence->setColors(TFT_BLACK, sd ? greenBg : greyBg, sd ? greenBorder : greyBorder);
     lastSd = (int8_t) sd;
   }
@@ -7465,6 +7489,68 @@ void DiagnosticsApp::updateUptime() {
   }
 }
 
+void DiagnosticsApp::updateDB() {
+  // we should probably do something reasonable about making sure we aren't going to conflict
+  // with something else already using these differently, but for now ignore that possibility
+  allPinMode(38, INPUT);
+
+  allPinMode(EXTENDER_PIN(10), OUTPUT);
+  allPinMode(EXTENDER_PIN(11), OUTPUT);
+  allPinMode(EXTENDER_PIN(12), OUTPUT);
+  allPinMode(EXTENDER_PIN(13), OUTPUT);
+  allPinMode(EXTENDER_PIN(14), OUTPUT);
+  allPinMode(EXTENDER_PIN(15), OUTPUT);
+
+  //allPinMode(25, OUTPUT);
+  //allPinMode(15, OUTPUT);
+  allPinMode(12, OUTPUT);
+  allPinMode(27, OUTPUT);
+  allPinMode(32, OUTPUT);
+  allPinMode(13, OUTPUT);
+  allPinMode(14, OUTPUT);
+
+  if (dbCounter < 1 || allDigitalRead(38)) {
+    allDigitalWrite(EXTENDER_PIN(10), HIGH);
+    allDigitalWrite(EXTENDER_PIN(11), HIGH);
+    allDigitalWrite(EXTENDER_PIN(12), HIGH);
+    allDigitalWrite(EXTENDER_PIN(13), HIGH);
+    allDigitalWrite(EXTENDER_PIN(14), HIGH);
+    allDigitalWrite(EXTENDER_PIN(15), HIGH);
+    //allDigitalWrite(25, HIGH); used by I2C, can't easily override
+    //allDigitalWrite(15, HIGH);
+    allDigitalWrite(12, HIGH);
+    allDigitalWrite(27, HIGH);
+    allDigitalWrite(32, HIGH);
+    allDigitalWrite(13, HIGH);
+    allDigitalWrite(14, HIGH);
+    dbCounter++;
+  } else {
+    uint32_t val = audio->getMicAvg();
+    val = val>>7;
+    printf("mic: %u\r\n", val);
+
+    allDigitalWrite(EXTENDER_PIN(10), LOW);
+    allDigitalWrite(EXTENDER_PIN(11), LOW);
+    allDigitalWrite(EXTENDER_PIN(12), LOW);
+    allDigitalWrite(EXTENDER_PIN(13), LOW);
+    allDigitalWrite(EXTENDER_PIN(14), LOW);
+    allDigitalWrite(EXTENDER_PIN(15), LOW);
+
+
+    //allDigitalWrite(25, LOW);
+    //allDigitalWrite(15, LOW);
+
+    allDigitalWrite(12, LOW);
+    allDigitalWrite(27, LOW);
+    allDigitalWrite(32, LOW);
+    allDigitalWrite(13, LOW);
+    allDigitalWrite(14, LOW);
+    if (dbCounter > 0) {
+      dbCounter = 0;
+    }
+  }
+}
+
 void DiagnosticsApp::updatePing() {
   if (this->pingedAll) {
     log_d("pinged all");
@@ -7481,26 +7567,30 @@ void DiagnosticsApp::updatePing() {
         addr[3] = 1;
       }
       break;
+
     case 1:
-      host = "voip.ms";
-      break;
-    case 2:
-      host = "sanjose2.voip.ms";
-      break;
-    case 3:
-      host = "amsterdam1.voip.ms";
-      break;
-    case 4:
-      host = "sip.antisip.com";
-      break;
-    case 5:
-      host = "sip.lax.didlogic.net";
-      break;
-    case 6:
-      host = "sip.nyc.didlogic.net";
-      break;
-    case 7:
       host = "bing.com";
+
+    //  break;
+    //case 2:
+    //  host = "sanjose2.voip.ms";
+    //  break;
+    //case 3:
+    //  host = "amsterdam1.voip.ms";
+    //  break;
+    //case 4:
+    //  host = "sip.antisip.com";
+    //  break;
+    //case 5:
+    //  host = "sip.lax.didlogic.net";
+    //  break;
+    //case 6:
+    //  host = "sip.nyc.didlogic.net";
+    //  break;
+    //case 7:
+    //  host = "voip.ms";
+
+
     // fallthrough for last
     default:
       this->nextToPing = 0;
@@ -7562,20 +7652,97 @@ void DiagnosticsApp::updatePing() {
   return; // true;
 }
 
+void DiagnosticsApp::updateMic(void) {
+  // flash the keypad LEDs based on the mic level
+  // this is intended to let us test if the mic is soldered
+  // correctly even before the screen or speakers are installed
+  uint32_t val = audio->getMicAvg();
+  val = val>>7;
+  //allAnalogWrite(KEYBOARD_LED, val);// Why doesn't this work? Supposedly each pin on the GPIO extender supports PWM.
+  allDigitalWrite(KEYBOARD_LED, val > 40 ? LOW : HIGH);
+}
+
+void DiagnosticsApp::toggleSpeaker(void) {
+  static bool toggle = true;
+  audio->chooseSpeaker(toggle);
+  //allDigitalWrite(KEYBOARD_LED, LOW);
+
+  //allDigitalWrite(VIBRO_MOTOR_CONTROL, toggle);
+
+  //allDigitalWrite(KEYBOARD_LED, HIGH);
+  //allDigitalWrite(VIBRO_MOTOR_CONTROL, LOW);
+  toggle = !toggle;
+  printf("toggled speaker\r\n");
+}
+
+bool DiagnosticsApp::selfTest(void) {
+  bool ip_ok = false;
+  bool gauge_ok = false;
+  bool extender_ok = false;
+  bool scanner_ok = false;
+  bool codec_ok = false;
+  bool psram_ok = false;
+  bool sd_ok = false;
+  bool memtest_ok = false;
+  bool self_check_passed = false;
+
+  printf("\r\n\r\n SELF TEST BEGIN\r\n\r\n");
+
+  char buff[25];
+  uint8_t mac[6];
+  wifiState.getMac(mac);
+  printf("Chip ID: %02X:%02X:%02X:%02X:%02X:%02X\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  IPAddress ipAddr = WiFi.localIP();
+  ip_ok = (ipAddr[0] != 0)? true : false;
+  printf("IP Address: %d.%d.%d.%d\r\n", ipAddr[0], ipAddr[1], ipAddr[2], ipAddr[3]);
+  if (ip_ok) {
+    printf("Has IP: ok\r\n");
+  } else {
+    printf("No IP: failed\r\n");
+  }
+  printf("USB State: %s\r\n", controlState.usbConnected ? "Connected" : "Unplugged");
+  gauge_ok = controlState.gaugeInited;
+  printf("Battery Gauge Inited: %s\r\n", gauge_ok? "yes" : "no");
+  extender_ok = controlState.extenderInited;
+  printf("GPIO Extender Inited: %s\r\n", extender_ok? "yes" : "no");
+  scanner_ok = controlState.scannerInited;
+  printf("Key Scanner Inited: %s\r\n", scanner_ok? "yes" : "no");
+  codec_ok = controlState.codecInited;
+  printf("Audio Codec Inited: %s\r\n", codec_ok? "yes" : "no");
+  psram_ok = controlState.psramInited;
+  printf("PSRAM Inited: %s\r\n", psram_ok? "yes" : "no");
+
+  sd_ok = test_sd_card();
+  printf("SD OK: %s\r\n", sd_ok? "yes" : "no");
+
+  memtest_ok = test_memory();
+
+  if(ip_ok && gauge_ok && extender_ok && scanner_ok && codec_ok && psram_ok && sd_ok && memtest_ok) {
+    self_check_passed = true;
+    printf("\r\n SELF TEST PASSED\r\n\r\n");
+    return true;
+  }
+  printf("\r\n SELF TEST FAILED\r\n\r\n");
+  return false;
+}
+
 void DiagnosticsApp::changeState(DiagnosticsView_t newState) {
   log_d("DiagnosticsApp::changeState %d", (int) newState);
   if (newState == MAIN) {
 
     controlState.msAppTimerEventLast = millis();
-    controlState.msAppTimerEventPeriod = 1000;    // 1 fps
+    controlState.msAppTimerEventPeriod = 100;    // 10 updates per second, but this will be cut down to a display update rate of 1 fps elsewhere
 
     this->updateVoltage();
     this->updateIP();
     this->updateRSSI();
     this->updateUsb();
     this->updateScannerAndCodec();
+    this->updateDB();
+    this->selfTest();
 
   } else if (newState == NETWORKS) {
+    audio->ceasePlayback();
 
     controlState.msAppTimerEventLast = millis();
     controlState.msAppTimerEventPeriod = 1000;    // 1 second delay before doing next ping
@@ -7603,26 +7770,56 @@ void DiagnosticsApp::changeState(DiagnosticsView_t newState) {
     controlState.msAppTimerEventLast = millis();
     controlState.msAppTimerEventPeriod = 33;    // 30 fps
 
-    audio->start();
-    audio->turnMicOn();
+  } else if (newState == SCREEN) {
+    audio->ceasePlayback();
+    printf("testing screen\r\n");
+    controlState.msAppTimerEventLast = millis();
+    controlState.msAppTimerEventPeriod = 500;    // 2 fps
   }
   appState = newState;
   screenInited = false;
 }
 
 appEventResult DiagnosticsApp::processEvent(EventType event) {
+
+  if (!controlState.booted) {
+    return DO_NOTHING;
+  }
+
+  static bool testPassed = false;
+  static bool audioOn = false;
+  static int splitter = 0;
+  if (splitter > 29) {
+    splitter = 0;
+  }
+
+  if (audioOn == true) {
+    audio->loop();
+    this->updateMic();
+  }
+
+#ifndef DIAGNOSTICS_ONLY
   if (LOGIC_BUTTON_BACK(event) && !(appState == KEYPAD && anyKeyPressed && keyPressed[5]<EXIT_CNT && keyPressed[8]<EXIT_CNT)) {
     return EXIT_APP;
   }
+#endif
   appEventResult res = DO_NOTHING;
   if (event == WIPHONE_KEY_DOWN && !(appState == KEYPAD && anyKeyPressed && keyPressed[7]<EXIT_CNT)) {
     // Change current state
     DiagnosticsView_t newState = MAIN;
+    allDigitalWrite(VIBRO_MOTOR_CONTROL, LOW);
     switch(appState) {
     case MAIN:
       newState = NETWORKS;
       break;
     case NETWORKS:
+      newState = AUDIO;
+      break;
+    case AUDIO:
+      newState = SCREEN;
+      screenStep = 0;
+      break;
+    case SCREEN:
       newState = KEYPAD;
       break;
     default:
@@ -7635,11 +7832,63 @@ appEventResult DiagnosticsApp::processEvent(EventType event) {
       this->updateVoltage();
       res |= REDRAW_SCREEN;
     } else if (event == APP_TIMER_EVENT || event == WIFI_ICON_UPDATE_EVENT) {      // NOTE: rssi is update once every two seconds, app timer event is once every second
-      this->updateIP();
-      this->updateRSSI();
-      this->updateScannerAndCodec();
-      this->updateUptime();
-      res |= REDRAW_SCREEN;
+      //if (controlState.codecInited && splitter > 28 ) {
+      if (controlState.booted && controlState.codecInited) {
+        //if (!audio->isOn()) {
+        if ( !audioOn ) {
+          // if we are in DIAGNOSTICS_ONLY mode, the audio object doesn't get set up/get passed in/function correctly and we need to create it again. it's unclear why
+          static Audio audio_local(true, I2S_BCK_PIN, I2S_WS_PIN, I2S_MOSI_PIN, I2S_MISO_PIN);
+          audio = &audio_local;
+
+          //audio->setVolumes(speakerVol, headphonesVol, loudspeakerVol);
+          //audio->setVolumes(0, 0, 0);
+          //audio->chooseSpeaker(true);
+          //gui.setAudio(audio);
+
+          audio->shutdown();
+
+          if (audio->start()) {
+            audio->turnMicOn();
+            audio->playRingtone(&SPIFFS);
+            audioOn = true;
+          } else {
+            printf("audio: failed\r\n");
+          }
+        }
+
+        if (splitter == 0) {
+          this->updateIP();
+          this->updateRSSI();
+          this->updateScannerAndCodec();
+          this->updateUptime();
+          testPassed = this->selfTest();
+        }
+        if (splitter % 5 == 0) {
+          this->updateDB();
+        }
+        if (splitter == 15 && audioOn) {
+          this->toggleSpeaker();
+        }
+
+        // turn the motor on once every second if we fail
+        // or once each 3 seconds if we pass
+        int count = splitter;
+        if ( !testPassed ) {
+          count = splitter%10;
+        }
+        if ( count == 3 ) {
+          printf("motor on\r\n");
+          allDigitalWrite(VIBRO_MOTOR_CONTROL, HIGH);
+        }
+        if ( count == 7 ) {
+          printf("motor off\r\n");
+          allDigitalWrite(VIBRO_MOTOR_CONTROL, LOW);
+        }
+
+        if (splitter%10 == 0) { // redraw the screen only once each 10 updates (once per second)
+          res |= REDRAW_SCREEN;
+        }
+      }
     } else if (event == USB_UPDATE_EVENT) {
       this->updateUsb();
       res |= REDRAW_SCREEN;
@@ -7647,6 +7896,44 @@ appEventResult DiagnosticsApp::processEvent(EventType event) {
   } else if (appState == NETWORKS) {
     if (event == APP_TIMER_EVENT) {
       this->updatePing();
+      res |= REDRAW_SCREEN;
+    }
+  } else if (appState == AUDIO) {
+    if (event == APP_TIMER_EVENT) {
+      res |= REDRAW_SCREEN;
+    }
+    if (event == '1') {
+      if (!audio->getHeadphones()) {
+        audio->chooseSpeaker(false);
+        audio->playRingtone(&SPIFFS);
+        printf("playing from ear speaker\r\n");
+      } else {
+        printf("headphones connected, ignoring\r\n");
+      }
+    }
+    if (event == '2') {
+      if (!audio->getHeadphones()) {
+        audio->chooseSpeaker(true);
+        audio->playRingtone(&SPIFFS);
+        printf("playing from loudspeaker\r\n");
+      } else {
+        printf("headphones connected, ignoring\r\n");
+      }
+    }
+    if (event == '3') {
+      if (audio->getHeadphones()) {
+        audio->chooseSpeaker(false);
+        audio->playRingtone(&SPIFFS);
+        printf("playing from headphone jack\r\n");
+      } else {
+        printf("no headphones connected, ignoring\r\n");
+      }
+    }
+    if (event == '4') {
+      audio->ceasePlayback();
+    }
+  } else if (appState == SCREEN) {
+    if (event == APP_TIMER_EVENT) {
       res |= REDRAW_SCREEN;
     }
   } else if (appState == KEYPAD) {
@@ -7746,12 +8033,14 @@ appEventResult DiagnosticsApp::processEvent(EventType event) {
       }
     }
   }
+  splitter++;
   return res;
 }
 
 void DiagnosticsApp::redrawScreen(bool redrawAll) {
-  if (!screenInited || redrawAll) {
-    lcd.fillRect(0, header->height(), lcd.width(), lcd.height() - header->height() - footer->height(), TFT_BLACK);
+  if ((!screenInited || redrawAll) && (appState != SCREEN)) {
+    //lcd.fillRect(0, header->height(), lcd.width(), lcd.height() - header->height() - footer->height(), TFT_BLACK);
+    lcd.fillRect(0, 0, lcd.width(), lcd.height(), TFT_BLACK);
   }
 
   if (appState == MAIN) {
@@ -7775,6 +8064,13 @@ void DiagnosticsApp::redrawScreen(bool redrawAll) {
     ((GUIWidget*) bMacAddress)->refresh(lcd, redrawAll || !screenInited);
     ((GUIWidget*) bIpAddress)->refresh(lcd, redrawAll || !screenInited);
 
+    if (!screenInited) {
+      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextSize(1.5);
+      lcd.setTextFont(2);
+      lcd.drawString("Press down for more tests", 75, 280);
+    }
+
   } else if (appState == NETWORKS) {
 
     for (int i=0; i<sizeof(bbPings)/sizeof(bbPings[0]); i++) {
@@ -7782,10 +8078,24 @@ void DiagnosticsApp::redrawScreen(bool redrawAll) {
         ((GUIWidget*) bbPings[i])->refresh(lcd, redrawAll || !screenInited);
       }
     }
-
   } else if (appState == AUDIO) {
-    uint32_t val = audio->getMicAvg();
+    if (!screenInited || redrawAll) {
+      //lcd.fillScreen(TFT_BLACK);
+      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextSize(2);
+      lcd.setTextFont(2);
+      lcd.drawString("Front Mic", 10, 40);
+      lcd.drawString("Audio Out", 10, 90);
 
+      lcd.setTextSize(1.3);
+      //lcd.setTextFont(2);
+      lcd.drawString("Press this key to test:", 10, 110);
+      lcd.drawString("#1: Front Speaker", 25, 130);
+      lcd.drawString("#2: Rear Speaker", 25, 150);
+      lcd.drawString("#3: Headphones", 25, 170);
+      lcd.drawString("#4: Stop", 25, 190);
+    }
+    uint32_t val = audio->getMicAvg();
     uint8_t stp = 0;
     uint16_t xOff = 0;
     uint16_t colorStep = 17;
@@ -7798,6 +8108,58 @@ void DiagnosticsApp::redrawScreen(bool redrawAll) {
       stp++;
     } while (val && xOff < lcd.width()-xStep);
     lcd.drawFastHLine(xOff, 60, lcd.width()-xOff, TFT_BLACK);
+
+    /*bool hp = audio->getHeadphones();
+    testEarSpeaker->setColors(TFT_BLACK, greyBg, greyBorder);
+
+    ((GUIWidget*) testEarSpeaker)->refresh(lcd, redrawAll || !screenInited);
+    ((GUIWidget*) testLoudSpeaker)->refresh(lcd, redrawAll || !screenInited);
+    ((GUIWidget*) testHeadphone)->refresh(lcd, redrawAll || !screenInited);
+    */
+
+  } else if (appState == SCREEN) {
+    switch (screenStep) {
+    case 0:
+      lcd.fillRect(0, 0, lcd.width(), lcd.height(), TFT_BLACK);
+      screenStep++;
+      break;
+    case 1:
+      allAnalogWrite(LCD_LED_PIN, 0);
+      screenStep++;
+      break;
+    case 2:
+      lcd.fillRect(0, 0, lcd.width(), lcd.height(), TFT_WHITE);
+      screenStep++;
+      break;
+    case 3:
+      allAnalogWrite(LCD_LED_PIN, 255);
+      screenStep++;
+      break;
+    case 4:
+      lcd.drawFastHLine(5, 5, lcd.width()-10, TFT_BLACK);
+      lcd.drawFastHLine(5, lcd.height()-5, lcd.width()-10, TFT_BLACK);
+      lcd.drawFastVLine(5, 5, lcd.height()-10, TFT_BLACK);
+      lcd.drawFastVLine(lcd.width()-5, 5, lcd.height()-10, TFT_BLACK);
+      screenStep++;
+      break;
+    case 5:
+      screenStep++;
+      break;
+    case 6:
+      screenStep++;
+      break;
+    case 7:
+      lcd.setTextColor(TFT_BLACK, TFT_WHITE);
+      lcd.setTextSize(2);
+      lcd.setTextFont(2);
+      lcd.drawString("LCD TEST", 120, 150);
+      screenStep = 2;
+      break;
+    default:
+      screenStep = 0;
+      break;
+    }
+
   } else if (appState == KEYPAD) {
     for (int i=0; i<sizeof(bbKeys)/sizeof(bbKeys[0]); i++) {
       ((GUIWidget*) bbKeys[i])->refresh(lcd, redrawAll || !screenInited);
@@ -11238,8 +11600,8 @@ void MenuWidget::selectLastOption() {
 //}
 
 OptionsMenuWidget::OptionsMenuWidget(uint16_t xPos, uint16_t yPos, uint16_t width, uint16_t height)
-  : MenuWidget(xPos, yPos, width, height, "No options available", fonts[AKROBAT_BOLD_20], N_OPTION_ITEMS, 8, true)
-{};
+  : MenuWidget(xPos, yPos, width, height, "No options available", fonts[AKROBAT_BOLD_20], N_OPTION_ITEMS, 8, true) {
+};
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Menu option  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 

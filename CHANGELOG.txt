@@ -1,3 +1,11 @@
+0.8.28:
+    Major:
+    - added headless tests
+    - added more tests to Diagnostics app
+    Minor:
+    - removed prints via Serial (prefer printf or log_x macros)
+    - some non-functional changes in older code after running auto-formatter
+
 0.8.27:
     Minor:
     - 0.8.26 was released onto production by accident so changing to 0.8.27

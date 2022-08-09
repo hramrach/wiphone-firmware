@@ -23,6 +23,7 @@ governing permissions and limitations under the License.
 // - check if using strncpy correctly (does not terminate with a nul)
 
 #include "esp32-hal.h"
+#include <stdio.h>
 #include "GUI.h"
 #include "tinySIP.h"
 #include "config.h"
@@ -36,6 +37,7 @@ governing permissions and limitations under the License.
 #include "ota.h"
 #include "lora.h"
 #include "esp_ota_ops.h"
+#include "Test.h"
 
 static bool been_in_verify = false;
 
@@ -512,10 +514,10 @@ void setup() {
   };
 
   int RX_BUF_SIZE =  1024;
-      
-  uart_param_config(UART_NUM_0, &uart_config);                                                                                                                                                                      
+
+  uart_param_config(UART_NUM_0, &uart_config);
   uart_driver_install(UART_NUM_0, RX_BUF_SIZE * 2, 0, 0, NULL, 0);
-  
+
   for(int i=0; i<17; i=i+8) {
     chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
   }
@@ -767,13 +769,16 @@ void setup() {
   //allDigitalWrite(EXTENDER_PIN_B0, HIGH);     // TODO: why do we do this?
 #endif
 
+
+  printf("\r\nBooting...\r\n");
+
   uint8_t mac[6];
   wifiState.getMac(mac);
 
   nvs_stats_t nvs_stats;
   nvs_get_stats(NULL, &nvs_stats);
-  printf("NVS stats: UsedEntries = %d, FreeEntries = %d, AllEntries = %d\n",
-         nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);
+  log_d("NVS stats: UsedEntries = %d, FreeEntries = %d, AllEntries = %d\n",
+        nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);
 
   gui.loadSettings();
   gui.reloadMessages();
@@ -913,7 +918,12 @@ void setup() {
       ota.commitUpdate();
     }
   }
+
 #endif
+
+  printf("\r\nBooted\r\n");
+
+  gui.state.booted = true;
 
   log_d("# # # # # # # # # # # # # # # # # # # # # # # # # # # #  END OF SETUP  # # # # # # # # # # # # # # # # # # # # # # # # # # # # ");
 }
@@ -1811,7 +1821,7 @@ void loop() {
 
     //esp_sleep_enable_timer_wakeup(1000000); // 0.001 s
     //int ret = esp_light_sleep_start();
-    //if (ret != ESP_OK) Serial.printf("light sleep error: %d\r\n", ret);
+    //if (ret != ESP_OK) printf("light sleep error: %d\r\n", ret);
   }
 }
 
