@@ -658,7 +658,7 @@ appEventResult GUI::processEvent(uint32_t now, EventType event) {
             state.locked = false;
             res |= REDRAW_SCREEN | LOCK_UNLOCK;
           }
-          if (state.unlockButton1) {
+          if (state.unlockButton1 && event != WIPHONE_KEY_UP & event != WIPHONE_KEY_DOWN && event != WIPHONE_KEY_LEFT && event != WIPHONE_KEY_RIGHT ) {
             state.unlockButton1 = 0;
             res |= REDRAW_FOOTER;
             log_d("state.unlockButton1 cleared");
@@ -6225,11 +6225,11 @@ ClockApp::~ClockApp() {
 appEventResult ClockApp::processEvent(EventType event) {
   //log_d("processEvent ClockApp");
   //LOG_MEM_STATUS;
-  if (LOGIC_BUTTON_BACK(event) || LOGIC_BUTTON_OK(event) || event==WIPHONE_KEY_DOWN || event==WIPHONE_KEY_UP) {
-    return EXIT_APP;
-  }
   if (controlState.locked) {
     return DO_NOTHING;
+  }
+  if (LOGIC_BUTTON_BACK(event) || LOGIC_BUTTON_OK(event) || event==WIPHONE_KEY_DOWN || event==WIPHONE_KEY_UP) {
+    return EXIT_APP;
   }
   if (NONKEY_EVENT_ONE_OF(event, TIME_UPDATE_EVENT | WIFI_ICON_UPDATE_EVENT | BATTERY_UPDATE_EVENT | REGISTRATION_UPDATE_EVENT | BATTERY_BLINK_EVENT | USB_UPDATE_EVENT)) {
     // TODO: optimize this app to only redraw small portion on events like WIFI_ICON_UPDATE_EVENT, BATTERY_UPDATE_EVENT, REGISTRATION_UPDATE_EVENT, BATTERY_BLINK_EVENT
