@@ -4693,7 +4693,7 @@ CallApp::CallApp(Audio* audio, LCD& lcd, ControlState& state, bool isCaller, Hea
   
   reasonHash = hash_murmur(s);
   log_i("hash_murmur");  
-  audio->chooseSpeaker(LOUDSPEAKER);
+  audio->chooseSpeaker(EARSPEAKER);
 }
 
 CallApp::~CallApp() {
